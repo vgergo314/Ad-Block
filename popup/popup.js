@@ -1,5 +1,5 @@
 import { getAlwaysAllow, getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
-import { getStats, KINDS, lastDays } from '../lib/stats.js';
+import { getStats } from '../lib/stats.js';
 import { getSuggestState, suggestionFor } from '../lib/suggest.js';
 
 const $ = (id) => document.getElementById(id);
@@ -7,81 +7,101 @@ const $ = (id) => document.getElementById(id);
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const tabHost = tab ? hostOf(tab.url) : null;
 
+const setSwitch = (el, on) => el.setAttribute('aria-checked', String(on));
+const isOn = (el) => el.getAttribute('aria-checked') === 'true';
+
+// The two rule lists. One "Sites" list shows both: Block = protected site,
+// Allow = "always allow popups to". Storage keeps them apart.
 let sites = await getSites();
+let alwaysAllow = await getAlwaysAllow();
 
 async function saveSites(next) {
   sites = [...new Set(next)].sort();
   await chrome.runtime.sendMessage({ type: 'setSites', sites });
+}
+
+async function saveAlwaysAllow(next) {
+  alwaysAllow = [...new Set(next)].sort();
+  // Open frames pick changes up live via storage.onChanged in bridge.js.
+  await chrome.storage.sync.set({ alwaysAllow });
+}
+
+/** Puts `site` in one list (or neither, for mode null) and takes it out of the other. */
+async function setRule(site, mode) {
+  if (sites.includes(site) || mode === 'block') {
+    await saveSites(mode === 'block' ? [...sites, site] : sites.filter((s) => s !== site));
+  }
+  if (alwaysAllow.includes(site) || mode === 'allow') {
+    await saveAlwaysAllow(mode === 'allow' ? [...alwaysAllow, site] : alwaysAllow.filter((s) => s !== site));
+  }
   render();
 }
 
 // --- master on/off switch ----------------------------------------------------
 // Applies live: open frames switch to pass-through (or back) without a reload.
 
-let enabled = true;
-let statsOpen = false;
+let enabled = await getEnabled();
 
-// Settings can't be used while paused, or while the stats panel covers them.
-function updateSettingsInert() {
-  $('settings').inert = !enabled || statsOpen;
-  $('settings').classList.toggle('paused-look', !enabled);
-}
-
-function renderEnabled(value) {
-  enabled = value;
-  $('enabled').checked = enabled;
-  $('paused').hidden = enabled;
-  updateSettingsInert();
-}
-
-$('enabled').addEventListener('change', async (e) => {
-  renderEnabled(e.target.checked);
-  renderSuggestion();
-  if (e.target.checked) {
-    // Replay the glow even on quick on/off/on: drop the class, force a reflow, re-add.
-    const master = e.target.closest('.master');
-    master.classList.remove('pulse');
-    void master.offsetWidth;
-    master.classList.add('pulse');
-    master.addEventListener('animationend', () => master.classList.remove('pulse'), { once: true });
-  }
-  await chrome.storage.sync.set({ enabled: e.target.checked });
+$('enabled').addEventListener('click', async () => {
+  enabled = !enabled;
+  if (!enabled) clearAllow();
+  render();
+  await chrome.storage.sync.set({ enabled });
 });
 
-renderEnabled(await getEnabled());
-
-// --- all-time stats (pull-down panel) ------------------------------------------
+// --- blocked count menu ------------------------------------------------------------
 
 const fmt = (n) => n.toLocaleString();
 const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+const plural = (n, word) => `${word}${n === 1 ? '' : 's'}`;
 
-/** Full number below `limit`, compact above it ("1.3K", "1.2M"); hover shows the exact count. */
-function showCount(el, n, limit) {
-  el.textContent = n < limit ? fmt(n) : compact.format(n);
-  el.title = fmt(n);
-}
-
-function setStatsOpen(open) {
-  statsOpen = open;
-  const stage = document.querySelector('.stage');
-  stage.classList.toggle('stats-open', open);
-  // The panel is absolutely positioned; stretch the popup to fit it while open.
-  stage.style.minHeight = open ? `${$('stats').scrollHeight}px` : '';
-  $('stats').inert = !open;
+function setMenuOpen(open) {
+  $('stats').hidden = !open;
+  $('scrim').hidden = !open;
   $('stats-toggle').setAttribute('aria-expanded', String(open));
-  updateSettingsInert();
+  if (open) ($('st-reset').disabled ? $('stats-toggle') : $('st-reset')).focus();
 }
 
-$('stats-toggle').addEventListener('click', () => setStatsOpen(!statsOpen));
-$('st-reset').addEventListener('click', async () => {
-  if (confirm('Reset all popup statistics? This can’t be undone.')) await chrome.storage.local.remove('stats');
+$('stats-toggle').addEventListener('click', () => setMenuOpen($('stats').hidden));
+$('scrim').addEventListener('click', () => setMenuOpen(false));
+$('stats').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  e.preventDefault(); // or Chrome closes the whole popup
+  setMenuOpen(false);
+  $('stats-toggle').focus();
 });
 
-function li(...cells) {
-  const item = document.createElement('li');
-  for (const cell of cells) item.append(cell);
-  return item;
+$('st-reset').addEventListener('click', async () => {
+  if (!confirm('Reset the blocked popup count? This can’t be undone.')) return;
+  await chrome.storage.local.remove('stats');
+  setMenuOpen(false);
+});
+
+async function renderStats() {
+  const stats = await getStats();
+
+  // The header chip has little room (max ~4 characters).
+  $('total-chip').textContent = stats.total < 1_000 ? fmt(stats.total) : compact.format(stats.total);
+  $('stats-toggle').setAttribute('aria-label', `${fmt(stats.total)} ${plural(stats.total, 'popup')} blocked in total, show details`);
+  $('st-title').textContent = stats.total
+    ? `${fmt(stats.total)} ${plural(stats.total, 'popup')} blocked in total`
+    : 'No popups blocked yet';
+  $('st-reset').disabled = stats.total === 0;
+
+  $('st-sites').replaceChildren(
+    ...Object.entries(stats.sites)
+      .sort((a, b) => b[1] - a[1])
+      .map(([site, n]) => {
+        const item = document.createElement('li');
+        item.append(span(site, 'name'), span(fmt(n), 'n'));
+        return item;
+      }),
+  );
 }
+
+chrome.storage.local.onChanged.addListener((changes) => {
+  if (changes.stats) renderStats();
+});
 
 function span(text, className) {
   const el = document.createElement('span');
@@ -90,77 +110,7 @@ function span(text, className) {
   return el;
 }
 
-async function renderStats() {
-  const stats = await getStats();
-  const week = lastDays(stats, 7);
-  const today = week.at(-1).count;
-
-  // The header chip has little room (max ~4 characters); tiles fit 5 digits.
-  showCount($('total-chip'), stats.total, 1_000);
-  $('stats-toggle').title = `${fmt(stats.total)} popups stopped, all time. Click for stats.`;
-  showCount($('st-total'), stats.total, 100_000);
-  showCount($('st-today'), today, 100_000);
-  showCount($('st-week'), week.reduce((sum, d) => sum + d.count, 0), 100_000);
-  $('st-empty').hidden = stats.total > 0;
-  $('st-details').hidden = stats.total === 0;
-
-  // 7-day chart
-  const max = Math.max(1, ...week.map((d) => d.count));
-  $('st-chart').replaceChildren(
-    ...week.map(({ date, count }, i) => {
-      const day = document.createElement('div');
-      day.className = `day${i === week.length - 1 ? ' today' : ''}`;
-      day.title = `${date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}: ${fmt(count)}`;
-      const wrap = document.createElement('div');
-      wrap.className = 'bar-wrap';
-      const bar = document.createElement('div');
-      bar.className = 'bar';
-      bar.style.height = `${(count / max) * 100}%`;
-      wrap.append(bar);
-      const label = document.createElement('small');
-      label.textContent = date.toLocaleDateString(undefined, { weekday: 'narrow' });
-      day.append(wrap, label);
-      return day;
-    }),
-  );
-
-  // per site
-  const siteRows = Object.entries(stats.sites).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const top = siteRows[0]?.[1] ?? 1;
-  $('st-sites').replaceChildren(
-    ...siteRows.map(([site, n]) => {
-      const meter = span('', 'meter');
-      const fill = document.createElement('span');
-      fill.style.width = `${(n / top) * 100}%`;
-      meter.append(fill);
-      return li(span(site, 'name'), span(fmt(n), 'n'), meter);
-    }),
-  );
-
-  // how they were stopped: Layer 2 (before opening) vs Layer 1 (closed after opening)
-  const closed = stats.kinds.closed ?? 0;
-  const before = stats.total - closed;
-  const pct = (n) => `${Math.round((n / Math.max(1, stats.total)) * 100)}%`;
-  $('st-split').querySelector('.before').style.width = pct(before);
-  $('st-split').querySelector('.closed').style.width = pct(closed);
-  $('st-before').textContent = pct(before);
-  $('st-closed').textContent = pct(closed);
-  $('st-kinds').replaceChildren(
-    ...Object.entries(KINDS)
-      .filter(([kind]) => stats.kinds[kind])
-      .sort((a, b) => stats.kinds[b[0]] - stats.kinds[a[0]])
-      .map(([kind, label]) => li(span(label), span(fmt(stats.kinds[kind])))),
-  );
-
-  if (statsOpen) setStatsOpen(true); // re-fit height after content changed
-}
-
-chrome.storage.local.onChanged.addListener((changes) => {
-  if (changes.stats) renderStats();
-});
-await renderStats();
-
-// --- current site card -----------------------------------------------------
+// --- this site ---------------------------------------------------------------------
 
 function renderCurrent() {
   const toggle = $('toggle');
@@ -168,17 +118,27 @@ function renderCurrent() {
     $('host').textContent = 'Not a web page';
     toggle.disabled = true;
     $('status').textContent = 'Open a website to protect it.';
+    for (const id of ['stat', 'allow', 'reload-hint']) $(id).hidden = true;
     return;
   }
 
   const entry = matchSite(tabHost, sites);
-  $('host').textContent = tabHost.replace(/^www\./, '');
-  toggle.checked = !!entry;
-  $('status').textContent = entry ? `Protected${entry !== tabHost.replace(/^www\./, '') ? ` (via ${entry})` : ''}` : 'Not protected';
-  $('status').classList.toggle('on', !!entry);
-  $('stat').hidden = !entry;
-  $('allow').hidden = !entry;
-  $('reload-hint').hidden = !(entry && enabled && guarded === false);
+  const active = !!entry && enabled;
+  const host = tabHost.replace(/^www\./, '');
+  $('host').textContent = host;
+  $('host').title = host;
+  setSwitch(toggle, !!entry);
+  toggle.disabled = !enabled;
+  toggle.classList.toggle('dim', !enabled);
+  $('current').classList.toggle('paused', !enabled);
+
+  $('status').textContent = !enabled
+    ? 'Paused — Popup Guard is off'
+    : entry ? `Protected${entry !== host ? ` (via ${entry})` : ''}` : 'Not protected';
+  $('status').classList.toggle('on', active);
+  $('stat').hidden = !active;
+  $('allow').hidden = !active;
+  $('reload-hint').hidden = !(active && guarded === false);
 }
 
 /**
@@ -206,20 +166,25 @@ $('reload-tab').addEventListener('click', () => {
   renderCurrent();
 });
 
-$('toggle').addEventListener('change', async (e) => {
+$('toggle').addEventListener('click', async () => {
   const entry = matchSite(tabHost, sites);
-  if (e.target.checked && !entry) await saveSites([...sites, normalizeHost(tabHost)]);
-  if (!e.target.checked && entry) await saveSites(sites.filter((s) => s !== entry));
-  // Open frames switch live, but a tab loaded before the extension was
-  // installed or reloaded has no guard in it yet, so reload when turning on.
-  if (e.target.checked) chrome.tabs.reload(tab.id);
+  if (entry) {
+    await setRule(entry, null);
+  } else {
+    await setRule(normalizeHost(tabHost), 'block');
+    // Open frames switch live, but a tab loaded before the extension was
+    // installed or reloaded has no guard in it yet, so reload when turning on.
+    chrome.tabs.reload(tab.id);
+  }
   guarded = null; // either reloaded or no longer protected
   renderCurrent();
 });
 
 async function renderCount() {
   const { counts = {} } = await chrome.storage.session.get('counts');
-  $('count').textContent = counts[tab?.id] ?? 0;
+  const n = counts[tab?.id] ?? 0;
+  $('count').textContent = fmt(n);
+  $('count-word').textContent = plural(n, 'popup');
 }
 
 chrome.storage.session.onChanged.addListener((changes) => {
@@ -227,113 +192,105 @@ chrome.storage.session.onChanged.addListener((changes) => {
 });
 
 // --- "let the next popup through" ----------------------------------------------
+// Click once to allow the next popup (for ALLOW_WINDOW_MS); click again to undo.
 
-let countdown;
+let allowUntil = 0;
+let allowTimer;
 
 function showAllowState(until) {
-  const btn = $('allow');
-  clearInterval(countdown);
-  const tick = () => {
-    const left = Math.ceil((until - Date.now()) / 1000);
-    if (left <= 0) {
-      clearInterval(countdown);
-      btn.disabled = false;
-      btn.textContent = 'Let the next popup through';
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = `Next popup allowed… ${left}s`;
-  };
-  tick();
-  countdown = setInterval(tick, 250);
+  allowUntil = until;
+  clearTimeout(allowTimer);
+  const armed = until > Date.now();
+  $('allow').textContent = armed ? 'Next popup will open — undo' : 'Let the next popup through';
+  if (armed) allowTimer = setTimeout(() => showAllowState(0), until - Date.now());
+}
+
+function clearAllow() {
+  if (allowUntil > Date.now()) chrome.runtime.sendMessage({ type: 'cancelAllow', tabId: tab.id });
+  showAllowState(0);
 }
 
 // Shared with the right-click menu: the background does the actual work.
 $('allow').addEventListener('click', async () => {
-  showAllowState(await chrome.runtime.sendMessage({ type: 'allowNext', tabId: tab.id }));
+  if (allowUntil > Date.now()) clearAllow();
+  else showAllowState(await chrome.runtime.sendMessage({ type: 'allowNext', tabId: tab.id }));
 });
 
-// Layer 1 deletes the entry when it lets a popup through — reset the button then.
+// Layer 1 deletes the entry when it lets a popup through — reset the link then.
 chrome.storage.session.onChanged.addListener((changes) => {
-  if (!changes.allow) return;
-  const until = changes.allow.newValue?.[tab?.id] ?? 0;
-  showAllowState(until);
+  if (changes.allow) showAllowState(changes.allow.newValue?.[tab?.id] ?? 0);
 });
 
-// --- site lists ---------------------------------------------------------------
+// --- sites list ---------------------------------------------------------------------
 
-/** Fills a .site-list with one row per site, each with a remove button. */
-function renderList(list, countEl, items, emptyText, removeTitle, onRemove) {
-  list.replaceChildren();
-  countEl.textContent = items.length ? `(${items.length})` : '';
+function renderSites() {
+  const rules = [
+    ...sites.map((site) => ({ site, mode: 'block' })),
+    ...alwaysAllow.map((site) => ({ site, mode: 'allow' })),
+  ].sort((a, b) => a.site.localeCompare(b.site));
 
-  if (!items.length) {
-    const li = document.createElement('li');
-    li.className = 'empty';
-    li.textContent = emptyText;
-    list.append(li);
+  if (!rules.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'No sites yet. Use the switch above or add one below.';
+    $('sites').replaceChildren(empty);
     return;
   }
 
-  for (const site of items) {
-    const li = document.createElement('li');
-    const name = document.createElement('span');
-    name.textContent = site;
-    const remove = document.createElement('button');
-    remove.className = 'remove';
-    remove.title = removeTitle(site);
-    remove.textContent = '×';
-    remove.addEventListener('click', () => onRemove(site));
-    li.append(name, remove);
-    list.append(li);
-  }
+  $('sites').replaceChildren(
+    ...rules.map(({ site, mode }) => {
+      const item = document.createElement('li');
+      item.title = mode === 'block' ? `Popups are blocked on ${site}` : `Protected sites may always open ${site}`;
+
+      const flip = document.createElement('button');
+      flip.type = 'button';
+      flip.className = `mode ${mode}`;
+      flip.textContent = mode === 'block' ? 'Block' : 'Allow';
+      flip.setAttribute('aria-label', mode === 'block'
+        ? `${site}: popups blocked, click to always allow`
+        : `${site}: popups always allowed, click to block`);
+      flip.addEventListener('click', () => setRule(site, mode === 'block' ? 'allow' : 'block'));
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove';
+      remove.setAttribute('aria-label', `Remove ${site}`);
+      remove.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+      remove.addEventListener('click', () => setRule(site, null));
+
+      item.append(span(site, 'name'), flip, remove);
+      return item;
+    }),
+  );
 }
 
-function renderSites() {
-  renderList($('sites'), $('site-count'), sites, 'No sites yet. Use the switch above or add one below.',
-    (site) => `Stop protecting ${site}`, (site) => saveSites(sites.filter((s) => s !== site)));
+function showError(message) {
+  $('add-error').textContent = message;
+  $('add-error').hidden = !message;
 }
+
+$('add-input').addEventListener('input', () => showError(''));
 
 $('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const host = normalizeHost($('add-input').value);
-  if (!host) return;
+  if (!host || !host.includes('.')) return showError('Enter a domain like example.com');
+  const mode = $('add-mode').value;
+  if ((mode === 'block' ? sites : alwaysAllow).includes(host)) return showError(`${host} is already in the list`);
   $('add-input').value = '';
-  await saveSites([...sites, host]);
-});
-
-// --- "Always allow popups to" ----------------------------------------------------
-// Protected sites may open or go to these (a login, a download host). Open
-// frames pick changes up live via storage.onChanged in bridge.js.
-
-let alwaysAllow = await getAlwaysAllow();
-
-async function saveAlwaysAllow(next) {
-  alwaysAllow = [...new Set(next)].sort();
-  await chrome.storage.sync.set({ alwaysAllow });
-  renderAlwaysAllow();
-}
-
-function renderAlwaysAllow() {
-  renderList($('always'), $('always-count'), alwaysAllow, 'None. Add a site your protected sites need to open.',
-    (site) => `Block popups to ${site} again`, (site) => saveAlwaysAllow(alwaysAllow.filter((s) => s !== site)));
-}
-
-$('always-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const host = normalizeHost($('always-input').value);
-  if (!host) return;
-  $('always-input').value = '';
-  await saveAlwaysAllow([...alwaysAllow, host]);
+  showError('');
+  await setRule(host, mode);
 });
 
 // --- count on the toolbar icon ------------------------------------------------------
 
 const { badgeCount = false } = await chrome.storage.sync.get('badgeCount');
-$('badge-count').checked = badgeCount;
-$('badge-count').addEventListener('change', (e) => chrome.storage.sync.set({ badgeCount: e.target.checked }));
-
-// --- init -------------------------------------------------------------------
+setSwitch($('badge-count'), badgeCount);
+$('badge-count').addEventListener('click', (e) => {
+  const on = !isOn(e.currentTarget);
+  setSwitch(e.currentTarget, on);
+  chrome.storage.sync.set({ badgeCount: on });
+});
 
 // --- "Protect this site?" suggestion --------------------------------------------
 
@@ -345,7 +302,7 @@ async function renderSuggestion() {
 }
 
 $('suggest-protect').addEventListener('click', async () => {
-  await saveSites([...sites, normalizeHost(tabHost)]);
+  await setRule(normalizeHost(tabHost), 'block');
   chrome.tabs.reload(tab.id); // same as the switch: start guarding from a fresh load
 });
 
@@ -355,16 +312,19 @@ $('suggest-dismiss').addEventListener('click', async () => {
   renderSuggestion();
 });
 
+// --- init -------------------------------------------------------------------
+
 function render() {
+  setSwitch($('enabled'), enabled);
   renderCurrent();
   renderSites();
   renderSuggestion();
 }
 
 render();
-renderAlwaysAllow();
+renderStats();
 renderCount();
 if (tab) {
   const { allow = {} } = await chrome.storage.session.get('allow');
-  if ((allow[tab.id] ?? 0) > Date.now()) showAllowState(allow[tab.id]);
+  showAllowState(allow[tab.id] ?? 0);
 }

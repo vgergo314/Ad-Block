@@ -7,117 +7,74 @@
 </head>
 <body>
   <header>
-    <img src="../icons/icon32.png" alt="" width="20" height="20">
+    <svg class="logo" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#fff" stroke="#d93a2b" stroke-width="2.5"/><path d="M5.5 5.5l13 13" stroke="#d93a2b" stroke-width="2.5"/></svg>
     <h1>Popup Guard</h1>
-    <button class="total-chip" id="stats-toggle" aria-expanded="false" aria-controls="stats" title="Popups stopped, all time. Click for stats.">
-      <span id="total-chip">0</span><span class="caret" aria-hidden="true">▾</span>
+    <button type="button" class="count-chip" id="stats-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="stats">
+      <span id="total-chip">0</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
     </button>
-    <label class="master" title="Turn Popup Guard on or off everywhere">
-      <input type="checkbox" id="enabled" role="switch" aria-label="Popup Guard on">
-      <span class="track"></span>
-    </label>
+    <button type="button" class="switch master" id="enabled" role="switch" aria-checked="true" aria-label="Popup Guard on or off"><span></span></button>
   </header>
 
-  <p class="paused" id="paused" hidden>Paused. Popups are allowed on every site until you turn this back on.</p>
+  <!-- Drops down from the count chip over the rest of the popup. -->
+  <div class="scrim" id="scrim" hidden></div>
+  <div class="menu" id="stats" role="menu" aria-label="Blocked popups" hidden>
+    <div class="menu-title" id="st-title"></div>
+    <ul id="st-sites"></ul>
+    <div class="menu-sep"></div>
+    <button type="button" role="menuitem" class="menu-item" id="st-reset">Reset count</button>
+  </div>
 
-  <div class="stage">
   <main id="settings">
-  <section class="card" id="current">
-    <div class="row">
-      <div>
-        <div class="label">This site</div>
-        <div class="host" id="host">—</div>
+    <section class="site" id="current" aria-label="This site">
+      <div class="site-row">
+        <span class="host" id="host">—</span>
+        <button type="button" class="switch" id="toggle" role="switch" aria-checked="false" aria-label="Block popups on this site"><span></span></button>
       </div>
-      <label class="switch" title="Protect this site">
-        <input type="checkbox" id="toggle">
-        <span class="slider"></span>
-      </label>
-    </div>
-    <p class="hint" id="status"></p>
-
-    <div class="suggest" id="reload-hint" hidden>
-      <p>This tab was open before Popup Guard started, so popups can still slip through. Reload it to start blocking.</p>
-      <div class="suggest-actions">
-        <button id="reload-tab">Reload tab</button>
+      <div class="status">
+        <span id="status"></span>
+        <span id="stat" hidden><span class="dot" aria-hidden="true">·</span> <b id="count">0</b> <span id="count-word">popups</span> blocked in this tab</span>
       </div>
-    </div>
+      <div><button type="button" class="link" id="allow" hidden>Let the next popup through</button></div>
 
-    <div class="suggest" id="suggest" hidden>
-      <p id="suggest-text"></p>
-      <div class="suggest-actions">
-        <button id="suggest-protect">Protect</button>
-        <button class="ghost" id="suggest-dismiss">Not this site</button>
+      <div class="note" id="reload-hint" hidden>
+        <p>This tab was open before Popup Guard started, so popups can still slip through. Reload it to start blocking.</p>
+        <div class="note-actions"><button type="button" class="primary" id="reload-tab">Reload tab</button></div>
       </div>
-    </div>
 
-    <div class="stat" id="stat" hidden>
-      <span class="count" id="count">0</span>
-      <span>popups blocked in this tab</span>
-    </div>
+      <div class="note" id="suggest" hidden>
+        <p id="suggest-text"></p>
+        <div class="note-actions">
+          <button type="button" class="primary" id="suggest-protect">Protect</button>
+          <button type="button" class="ghost" id="suggest-dismiss">Not this site</button>
+        </div>
+      </div>
+    </section>
 
-    <button id="allow" class="secondary" hidden>Let the next popup through</button>
-  </section>
-
-  <section>
-    <div class="section-title">Protected sites <span id="site-count"></span></div>
-    <ul class="site-list" id="sites"></ul>
-    <form id="add-form">
-      <input id="add-input" type="text" placeholder="example.com" autocomplete="off" spellcheck="false">
-      <button type="submit">Add</button>
-    </form>
-  </section>
-
-  <section class="list-section">
-    <div class="section-title" title="Protected sites may always open these, e.g. a login or download site">Always allow popups to <span id="always-count"></span></div>
-    <ul class="site-list" id="always"></ul>
-    <form id="always-form">
-      <input id="always-input" type="text" placeholder="accounts.google.com" autocomplete="off" spellcheck="false">
-      <button type="submit">Add</button>
-    </form>
-  </section>
-
-  <section class="list-section">
-    <label class="row option">
-      <span>Show blocked count on the icon</span>
-      <span class="switch">
-        <input type="checkbox" id="badge-count">
-        <span class="slider"></span>
-      </span>
-    </label>
-  </section>
+    <section class="sites" aria-labelledby="sites-title">
+      <div class="sites-head">
+        <span class="section-title" id="sites-title">Sites</span>
+        <span class="sites-hint">click a rule to switch it</span>
+      </div>
+      <ul class="site-list" id="sites"></ul>
+      <form id="add-form">
+        <label class="sr-only" for="add-input">Site to add</label>
+        <input id="add-input" type="text" placeholder="example.com" autocomplete="off" spellcheck="false">
+        <label class="sr-only" for="add-mode">Rule</label>
+        <select id="add-mode">
+          <option value="block">Block</option>
+          <option value="allow">Allow</option>
+        </select>
+        <button type="submit" class="primary">Add</button>
+      </form>
+      <div class="error" id="add-error" role="alert" hidden></div>
+    </section>
   </main>
 
-  <!-- Slides down from the header over the settings. -->
-  <section class="stats" id="stats" inert>
-    <div class="tiles">
-      <div class="tile"><b id="st-total">0</b><span>all time</span></div>
-      <div class="tile"><b id="st-today">0</b><span>today</span></div>
-      <div class="tile"><b id="st-week">0</b><span>last 7 days</span></div>
-    </div>
-
-    <p class="stats-empty" id="st-empty">Nothing stopped yet. Popups blocked on your protected sites will show up here.</p>
-
-    <div id="st-details">
-      <div class="section-title">Last 7 days</div>
-      <div class="chart" id="st-chart"></div>
-
-      <div class="section-title">By site</div>
-      <ul class="bars" id="st-sites"></ul>
-
-      <div class="section-title">How they were stopped</div>
-      <div class="split" id="st-split"><span class="before"></span><span class="closed"></span></div>
-      <p class="split-legend">
-        <span><i class="dot before"></i>Before opening <b id="st-before">0%</b></span>
-        <span><i class="dot closed"></i>Closed after opening <b id="st-closed">0%</b></span>
-      </p>
-      <ul class="kinds" id="st-kinds"></ul>
-    </div>
-
-    <div class="stats-foot">
-      <button class="link" id="st-reset">Reset stats</button>
-    </div>
-  </section>
-  </div>
+  <footer>
+    <span id="badge-label">Show count on icon</span>
+    <button type="button" class="switch small" id="badge-count" role="switch" aria-checked="false" aria-labelledby="badge-label"><span></span></button>
+  </footer>
 
   <script type="module" src="popup.js"></script>
 </body>

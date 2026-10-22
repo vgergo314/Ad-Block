@@ -76,6 +76,14 @@ async function allowNextPopup(tabId) {
   return until;
 }
 
+/** Undo allowNextPopup before it's used (the popup's "undo"). */
+async function cancelAllow(tabId) {
+  const { allow = {} } = await chrome.storage.session.get('allow');
+  delete allow[tabId];
+  await chrome.storage.session.set({ allow });
+  chrome.tabs.sendMessage(tabId, { type: 'allow', until: 0 }).catch(() => {});
+}
+
 /** If "allow next popup" is active for this tab, use it up and return true. */
 async function consumeAllow(tabId) {
   const { allow = {} } = await chrome.storage.session.get('allow');
@@ -417,6 +425,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     case 'allowNext':
       allowNextPopup(msg.tabId).then(sendResponse);
+      return true;
+    case 'cancelAllow':
+      cancelAllow(msg.tabId).then(() => sendResponse(true));
       return true;
     default:
       return false;
