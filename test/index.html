@@ -26,6 +26,8 @@
   <button id="t-step1">10. Same-site tab that redirects to the ad (step1 trick)</button>
   <button id="t-notify">11. Ask for notification permission</button>
   <button id="t-push">12. Push signup (PushManager.subscribe)</button>
+  <button id="t-tabunder">13. Tab-under: copy page to new tab, send this tab to ad</button>
+  <a id="t-external" href="http://ads.test:8765/test/ad.html?real-link">14. Real link to another site (must work)</a>
   <iframe id="player" src="http://voe.test:8765/test/voe-redirect.html" width="400" height="120"></iframe>
 
   <div id="overlay" hidden></div>
@@ -66,6 +68,11 @@
     document.getElementById('t-push').onclick = async () => {
       try { await PushManager.prototype.subscribe.call({}); window.__notify.push('push:ok'); }
       catch (e) { window.__notify.push('push:' + e.name); }
+    };
+
+    document.getElementById('t-tabunder').onclick = () => {
+      window.__adOpen(location.pathname + '?copy');
+      setTimeout(() => (location.href = AD + '?tab-under'), 50);
     };
 
     const overlay = document.getElementById('overlay');

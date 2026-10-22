@@ -3,7 +3,12 @@
 <body style="margin:0;background:#222;color:#fff;font:14px system-ui">
   <button id="play" style="margin:12px">7. Play (popup at click time)</button>
   <button id="play-cached" style="margin:12px">7d. Play (open cached at load)</button>
+  <button id="play-topnav" style="margin:12px">15. Play (popup + send whole tab to ad)</button>
   <script>
+    document.getElementById('play-topnav').onclick = () => {
+      window.open('http://ads.test:8765/test/ad.html?from-player');
+      top.location.href = 'http://ads.test:8765/test/ad.html?topnav';
+    };
     const cachedOpen = window.open; // worst case: grabbed while the frame is still parsing
     document.getElementById('play').onclick = () => window.open('http://ads.test:8765/test/ad.html?from-player');
     document.getElementById('play-cached').onclick = () => cachedOpen.call(window, 'http://ads.test:8765/test/ad.html?cached');

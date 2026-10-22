@@ -84,11 +84,13 @@ async function consumeAllow(tabId) {
 }
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const { counts = {}, allow = {}, children = {} } = await chrome.storage.session.get(['counts', 'allow', 'children']);
+  const { counts = {}, allow = {} } = await chrome.storage.session.get(['counts', 'allow']);
   delete counts[tabId];
   delete allow[tabId];
-  delete children[tabId];
-  await chrome.storage.session.set({ counts, allow, children });
+  await chrome.storage.session.set({ counts, allow });
+  for (const key of ['children', 'activity', 'userNav', 'tabUnder', 'tops']) {
+    updateSession(key, (m) => void delete m[tabId]);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,7 @@ async function closePopup(tabId, sourceTabId, windowId, sourceHost) {
   chrome.tabs.update(sourceTabId, { active: true }).catch(() => {});
   if (windowId !== undefined) chrome.windows.update(windowId, { focused: true }).catch(() => {});
   recordBlock(sourceTabId, sourceHost, 'closed');
+  markActivity(sourceTabId);
 }
 
 // The aniwaves ad opens a *same-site* copy of the page (?step1=…&step2=…), which
@@ -132,10 +135,95 @@ async function closePopup(tabId, sourceTabId, windowId, sourceHost) {
 const CHILD_WATCH_MS = 15_000;
 
 async function watchChild(tabId, sourceTabId, sourceHost) {
-  const { children = {} } = await chrome.storage.session.get('children');
-  children[tabId] = { sourceTabId, sourceHost, until: Date.now() + CHILD_WATCH_MS };
-  await chrome.storage.session.set({ children });
+  markActivity(sourceTabId);
+  // Opened just after a blocked tab-under? It's the ad script's copy of the page.
+  const { tabUnder = {} } = await chrome.storage.session.get('tabUnder');
+  if (Date.now() - (tabUnder[sourceTabId] ?? 0) < TAB_UNDER_WINDOW_MS) {
+    chrome.tabs.remove(tabId).catch(() => {});
+    return;
+  }
+  await updateSession('children', (children) => {
+    children[tabId] = { sourceTabId, sourceHost, opened: Date.now(), until: Date.now() + CHILD_WATCH_MS };
+  });
 }
+
+// ---------------------------------------------------------------------------
+// Layer 3: tab-under. The ad opens a copy of the page in a new tab and sends
+// THIS tab to an ad. content/main.js cancels script-started jumps before they
+// happen; this is the fallback for one that slips through (e.g. started from a
+// cross-site player frame): go back, and close the copy.
+// ---------------------------------------------------------------------------
+
+const TAB_UNDER_WINDOW_MS = 3_000; // popup activity and the redirect come together
+const USER_NAV_GRACE_MS = 5_000;
+
+// Small read-modify-write helper for the session maps below, chained so
+// concurrent events can't overwrite each other.
+let sessionChain = Promise.resolve();
+function updateSession(key, change) {
+  const run = sessionChain.then(async () => {
+    const { [key]: map = {} } = await chrome.storage.session.get(key);
+    const result = change(map);
+    await chrome.storage.session.set({ [key]: map });
+    return result;
+  });
+  sessionChain = run.catch(() => {});
+  return run;
+}
+
+/** A protected tab just tried a popup trick; a redirect right after is a tab-under. */
+function markActivity(tabId) {
+  updateSession('activity', (m) => void (m[tabId] = Date.now()));
+}
+
+/** Close the same-site copies this tab opened in the last few seconds. */
+async function closeRecentCopies(sourceTabId) {
+  const closed = await updateSession('children', (children) => {
+    const ids = Object.entries(children)
+      .filter(([, c]) => c.sourceTabId === sourceTabId && Date.now() - (c.opened ?? 0) < TAB_UNDER_WINDOW_MS)
+      .map(([id]) => Number(id));
+    for (const id of ids) delete children[id];
+    return ids;
+  });
+  for (const id of closed) chrome.tabs.remove(id).catch(() => {});
+}
+
+/** main.js blocked a tab-under in this tab (or the fallback caught one). */
+async function onTabUnder(tabId) {
+  await updateSession('tabUnder', (m) => void (m[tabId] = Date.now()));
+  await closeRecentCopies(tabId);
+}
+
+chrome.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url, transitionType, transitionQualifiers }) => {
+  if (frameId !== 0) return;
+  const host = hostOf(url);
+  const prev = await updateSession('tops', (tops) => {
+    const before = tops[tabId];
+    tops[tabId] = host;
+    return before;
+  });
+  // A real link click (reported by main.js) covers exactly one page load: this one.
+  const userNavUntil = await updateSession('userNav', (m) => {
+    const until = m[tabId];
+    delete m[tabId];
+    return until ?? 0;
+  });
+  if (!prev || !host || isSameSite(prev, host)) return;
+  if (!(await getEnabled()) || !matchSite(prev, await getSites())) return;
+
+  // Things you did yourself: typing, bookmarks, reload, back/forward.
+  if (['typed', 'auto_bookmark', 'generated', 'keyword', 'keyword_generated', 'reload', 'start_page'].includes(transitionType)) return;
+  if (transitionQualifiers.includes('forward_back') || transitionQualifiers.includes('from_address_bar')) return;
+
+  if (userNavUntil > Date.now()) return; // the user's own link click
+  const { activity = {} } = await chrome.storage.session.get('activity');
+  if (Date.now() - (activity[tabId] ?? 0) > TAB_UNDER_WINDOW_MS) return; // no popup trick just now
+  if (await consumeAllow(tabId)) return;
+
+  chrome.tabs.goBack(tabId).catch(() => {});
+  recordBlock(tabId, prev, 'tab-under');
+  onTabUnder(tabId);
+});
 
 chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }) => {
   if (frameId !== 0) return;
@@ -147,8 +235,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }
   const targetHost = hostOf(url);
   if (!expired && targetHost && isSameSite(child.sourceHost, targetHost)) return; // still on-site: keep watching
 
-  delete children[tabId];
-  await chrome.storage.session.set({ children });
+  await updateSession('children', (m) => void delete m[tabId]);
   if (expired || (await consumeAllow(child.sourceTabId))) return;
 
   const source = await chrome.tabs.get(child.sourceTabId).catch(() => null);
@@ -234,7 +321,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case 'blocked':
-      if (sender.tab) recordBlock(sender.tab.id, hostOf(sender.tab.url), msg.kind);
+      if (!sender.tab) return false;
+      recordBlock(sender.tab.id, hostOf(sender.tab.url), msg.kind);
+      markActivity(sender.tab.id);
+      if (msg.kind === 'tab-under') onTabUnder(sender.tab.id);
+      return false;
+    case 'userNav':
+      if (sender.tab) updateSession('userNav', (m) => void (m[sender.tab.id] = Date.now() + USER_NAV_GRACE_MS));
       return false;
     case 'isProtectedTab':
       // bridge.js asks when a frame can't see its tab's address itself.

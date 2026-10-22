@@ -202,6 +202,37 @@
     true,
   );
 
+  // --- tab-under: script sends THIS tab to an ad ---------------------------
+  // Chrome announces every navigation of the top page before it starts and
+  // says whether the user started it (a real link click, a form they sent).
+  // On protected tabs, a script-started jump to another site is cancelled.
+  // Typed addresses, bookmarks and back/forward aren't cancelable, so they
+  // never reach this check. Jumps started by a cross-site frame (the player
+  // doing top.location = ad) can't be cancelled from here at all; the
+  // background's tab-under fallback sends those back.
+  if (window === window.top && window.navigation) {
+    // Chrome also calls it "user started" when the click was inside a frame
+    // (e.g. the player doing top.location = ad). Only trust it if the user
+    // clicked or typed in THIS page just before.
+    let lastOwnInput = 0;
+    const noteInput = (e) => {
+      if (e.isTrusted) lastOwnInput = Date.now();
+    };
+    for (const type of ['pointerdown', 'keydown', 'click']) window.addEventListener(type, noteInput, true);
+
+    navigation.addEventListener('navigate', (e) => {
+      if (passThrough() || !e.cancelable || e.navigationType === 'reload' || e.navigationType === 'traverse') return;
+      if (!isForeign(e.destination.url)) return;
+      if (e.userInitiated && Date.now() - lastOwnInput < 1000) {
+        // Tell the background this one is the user's, so its fallback leaves it alone.
+        window.dispatchEvent(new CustomEvent('popupguard:usernav'));
+        return;
+      }
+      e.preventDefault();
+      report('tab-under');
+    });
+  }
+
   // --- invisible overlays -------------------------------------------------
 
   const TRANSPARENT = new Set(['transparent', 'rgba(0, 0, 0, 0)']);

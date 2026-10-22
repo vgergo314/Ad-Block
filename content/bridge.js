@@ -77,6 +77,11 @@ if (!globalThis.__popupGuardBridge) {
     chrome.runtime.sendMessage({ type: 'blocked', kind }).catch(() => {});
   });
 
+  // A real link click to another site is about to leave the page (see main.js).
+  window.addEventListener('popupguard:usernav', () => {
+    if (state.active) chrome.runtime.sendMessage({ type: 'userNav' }).catch(() => {});
+  });
+
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'allow') publish({ allowUntil: msg.until });
   });
