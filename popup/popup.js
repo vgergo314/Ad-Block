@@ -59,10 +59,19 @@ function setMenuOpen(open) {
   $('stats').hidden = !open;
   $('scrim').hidden = !open;
   $('stats-toggle').setAttribute('aria-expanded', String(open));
-  if (open) ($('st-reset').disabled ? $('stats-toggle') : $('st-reset')).focus();
 }
 
-$('stats-toggle').addEventListener('click', () => setMenuOpen($('stats').hidden));
+$('stats-toggle').addEventListener('click', (e) => {
+  setMenuOpen($('stats').hidden);
+  // Opened from the keyboard (no pointer, so detail is 0): move focus into the menu,
+  // onto the safe item, never onto "Reset count".
+  if (!$('stats').hidden && e.detail === 0) $('st-open').focus();
+});
+
+$('st-open').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('stats/stats.html') });
+  window.close();
+});
 $('scrim').addEventListener('click', () => setMenuOpen(false));
 $('stats').addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
