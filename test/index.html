@@ -28,6 +28,7 @@
   <button id="t-push">12. Push signup (PushManager.subscribe)</button>
   <button id="t-tabunder">13. Tab-under: copy page to new tab, send this tab to ad</button>
   <a id="t-external" href="http://ads.test:8765/test/ad.html?real-link">14. Real link to another site (must work)</a>
+  <div id="t-video" style="width:220px;height:50px;background:#333;color:#fff;padding:6px">16. "Video" area: opens an ad on click</div>
   <iframe id="player" src="http://voe.test:8765/test/voe-redirect.html" width="400" height="120"></iframe>
 
   <div id="overlay" hidden></div>
@@ -74,6 +75,8 @@
       window.__adOpen(location.pathname + '?copy');
       setTimeout(() => (location.href = AD + '?tab-under'), 50);
     };
+
+    document.getElementById('t-video').onclick = () => window.__adOpen(AD + '?video-area');
 
     const overlay = document.getElementById('overlay');
     document.getElementById('arm-overlay').onclick = () => setTimeout(() => (overlay.hidden = false));

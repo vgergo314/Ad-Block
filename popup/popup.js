@@ -1,5 +1,6 @@
 import { getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
 import { getStats, KINDS, lastDays } from '../lib/stats.js';
+import { getSuggestState, suggestionFor } from '../lib/suggest.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,6 +36,7 @@ function renderEnabled(value) {
 
 $('enabled').addEventListener('change', async (e) => {
   renderEnabled(e.target.checked);
+  renderSuggestion();
   if (e.target.checked) {
     // Replay the glow even on quick on/off/on: drop the class, force a reflow, re-add.
     const master = e.target.closest('.master');
@@ -269,9 +271,30 @@ $('add-form').addEventListener('submit', async (e) => {
 
 // --- init -------------------------------------------------------------------
 
+// --- "Protect this site?" suggestion --------------------------------------------
+
+async function renderSuggestion() {
+  const site = tabHost ? normalizeHost(tabHost) : null;
+  const count = site && enabled && !matchSite(tabHost, sites) ? suggestionFor(site, await getSuggestState()) : 0;
+  $('suggest').hidden = !count;
+  if (count) $('suggest-text').textContent = `This site tried to open ${count} popups. Protect it?`;
+}
+
+$('suggest-protect').addEventListener('click', async () => {
+  await saveSites([...sites, normalizeHost(tabHost)]);
+  chrome.tabs.reload(tab.id); // same as the switch: start guarding from a fresh load
+});
+
+$('suggest-dismiss').addEventListener('click', async () => {
+  const { dismissed } = await getSuggestState();
+  await chrome.storage.local.set({ dismissed: [...new Set([...dismissed, normalizeHost(tabHost)])] });
+  renderSuggestion();
+});
+
 function render() {
   renderCurrent();
   renderSites();
+  renderSuggestion();
 }
 
 render();

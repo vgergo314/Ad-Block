@@ -102,6 +102,16 @@ main.paused-look { opacity: .45; filter: grayscale(1); transition: opacity .2s; 
 .hint { margin: 8px 0 0; color: var(--muted); min-height: 1em; }
 .hint.on { color: var(--ok); }
 
+.suggest {
+  margin-top: 12px; padding: 12px; border-radius: var(--r-control);
+  background: color-mix(in srgb, #f9ab00 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f9ab00 35%, transparent);
+}
+.suggest p { margin: 0 0 10px; }
+.suggest-actions { display: flex; gap: 8px; }
+button.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+button.ghost:hover { border-color: var(--muted); }
+
 .stat { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; }
 .count { font-size: 22px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
 

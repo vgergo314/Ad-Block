@@ -38,6 +38,7 @@ if (!globalThis.__popupGuardBridge) {
   sayHello();
 
   let state = { active: false, allowUntil: 0 };
+  let enabled = true; // master switch, refreshed with the site list
   const publish = (patch) => {
     state = { ...state, ...patch };
     window.dispatchEvent(new CustomEvent('popupguard:state', { detail: JSON.stringify({ ...state, key }) }));
@@ -45,7 +46,8 @@ if (!globalThis.__popupGuardBridge) {
 
   const refresh = async () => {
     const host = topHost();
-    const { sites = [], enabled = true } = await chrome.storage.sync.get(['sites', 'enabled']);
+    const { sites = [], enabled: on = true } = await chrome.storage.sync.get(['sites', 'enabled']);
+    enabled = on;
     let active;
     if (!enabled) {
       active = false; // paused with the popup's master switch
@@ -75,6 +77,12 @@ if (!globalThis.__popupGuardBridge) {
     if (!state.active) return;
     const kind = typeof e.detail === 'string' ? e.detail : undefined;
     chrome.runtime.sendMessage({ type: 'blocked', kind }).catch(() => {});
+  });
+
+  // Popup trick on an unprotected site (see main.js); the background tallies
+  // these per site to suggest protecting it. Not while paused.
+  window.addEventListener('popupguard:suspect', () => {
+    if (!state.active && enabled) chrome.runtime.sendMessage({ type: 'suspect' }).catch(() => {});
   });
 
   // A real link click to another site is about to leave the page (see main.js).

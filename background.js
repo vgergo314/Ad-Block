@@ -1,5 +1,6 @@
 import { ALLOW_WINDOW_MS, getEnabled, getSites, hostOf, isSameSite, matchSite, normalizeHost } from './lib/sites.js';
 import { addBlock, getStats, KINDS } from './lib/stats.js';
+import { addSuspect, getSuggestState, suggestionFor } from './lib/suggest.js';
 
 // Layer 2 (content/main.js + content/bridge.js) is declared in manifest.json and
 // loads in every frame of every site; it only blocks inside protected tabs.
@@ -24,7 +25,7 @@ async function isProtectedTab(tab) {
 // to pass-through live, and Layer 1 below stops closing tabs.
 // ---------------------------------------------------------------------------
 
-/** The toolbar icon's only badge: OFF while paused. Block counts live in the popup. */
+/** Global badge: OFF while paused. (Per tab, a suggestion dot may show; block counts live in the popup.) */
 function showPausedBadge(enabled) {
   chrome.action.setBadgeBackgroundColor({ color: '#8e8e93' });
   chrome.action.setBadgeText({ text: enabled ? '' : 'OFF' });
@@ -315,6 +316,51 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // ---------------------------------------------------------------------------
+// "Protect this site?" suggestions: tally popup tricks on unprotected sites
+// and put a small amber dot (no number) on the icon while you're on one that
+// crossed the threshold. The popup shows the actual question.
+// ---------------------------------------------------------------------------
+
+const DOT_COLOR = '#f9ab00';
+let suspectChain = Promise.resolve();
+
+async function noteSuspect(tab) {
+  const host = hostOf(tab?.url);
+  if (!host || !(await getEnabled()) || matchSite(host, await getSites())) return;
+  const site = normalizeHost(host);
+  suspectChain = suspectChain.then(async () => {
+    const { suspects } = await getSuggestState();
+    await chrome.storage.local.set({ suspects: addSuspect(suspects, site) });
+  }).catch(() => {});
+  await suspectChain;
+  refreshDot(tab);
+}
+
+async function refreshDot(tab) {
+  if (!tab?.id) return;
+  const host = hostOf(tab.url);
+  const show =
+    !!host &&
+    (await getEnabled()) &&
+    !matchSite(host, await getSites()) &&
+    suggestionFor(normalizeHost(host), await getSuggestState()) > 0;
+  // null clears this tab's text, falling back to the global badge (OFF or nothing).
+  chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: show ? DOT_COLOR : '#8e8e93' }).catch(() => {});
+  chrome.action.setBadgeText({ tabId: tab.id, text: show ? ' ' : null }).catch(() => {});
+}
+
+async function refreshAllDots() {
+  for (const tab of await chrome.tabs.query({})) refreshDot(tab);
+}
+
+chrome.tabs.onUpdated.addListener((_, info, tab) => {
+  if (info.status === 'complete') refreshDot(tab);
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if ((area === 'sync' && (changes.sites || changes.enabled)) || (area === 'local' && changes.dismissed)) refreshAllDots();
+});
+
+// ---------------------------------------------------------------------------
 // Messages from content/bridge.js and the popup.
 // ---------------------------------------------------------------------------
 
@@ -325,6 +371,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       recordBlock(sender.tab.id, hostOf(sender.tab.url), msg.kind);
       markActivity(sender.tab.id);
       if (msg.kind === 'tab-under') onTabUnder(sender.tab.id);
+      return false;
+    case 'suspect':
+      noteSuspect(sender.tab);
       return false;
     case 'userNav':
       if (sender.tab) updateSession('userNav', (m) => void (m[sender.tab.id] = Date.now() + USER_NAV_GRACE_MS));

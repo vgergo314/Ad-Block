@@ -95,12 +95,44 @@
     opensNewTab(attr(submitter, 'formtarget') ?? attr(f, 'target')) &&
     isForeign(attr(submitter, 'formaction') ?? attr(f, 'action') ?? location.href);
 
+  // --- unprotected sites: notice popup tricks (for "Protect this site?") ----
+  // Nothing is blocked here; bridge.js tallies these per site. Real links and
+  // buttons (share, "log in with…") don't count: only hidden links/forms,
+  // invisible overlays, and popups opened by clicking something that isn't a
+  // link or button (like a video).
+  let lastPress = { at: 0, interactive: false };
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!e.isTrusted) return;
+      const el = e.target instanceof Element ? e.target : null;
+      lastPress = {
+        at: Date.now(),
+        interactive: !!el?.closest('a[href],button,input,select,textarea,label,summary,[role="button"],[role="link"]'),
+      };
+    },
+    true,
+  );
+
+  let lastSuspect = 0;
+  const suspect = (kind) => {
+    if (active || Date.now() - lastSuspect < 800) return; // one click = one trick
+    lastSuspect = Date.now();
+    window.dispatchEvent(new CustomEvent('popupguard:suspect', { detail: kind }));
+  };
+  const looksSneaky = (kind) =>
+    kind !== 'notification' &&
+    (kind !== 'window.open' || !(lastPress.interactive && Date.now() - lastPress.at < 1000));
+
   // Proxies keep toString() returning "[native code]" — the aniwaves ad script
   // checks exactly that and switches tricks if a function looks patched.
   const guard = (realFn, shouldBlock, kind, blockedResult) =>
     new Proxy(realFn, {
       apply(fn, thisArg, args) {
-        if (passThrough() || !shouldBlock(thisArg, args)) return Reflect.apply(fn, thisArg, args);
+        if (passThrough() || !shouldBlock(thisArg, args)) {
+          if (!active && looksSneaky(kind) && shouldBlock(thisArg, args)) suspect(kind);
+          return Reflect.apply(fn, thisArg, args);
+        }
         report(kind);
         return blockedResult?.(args);
       },
@@ -255,9 +287,11 @@
   window.addEventListener(
     'pointerdown',
     (e) => {
-      if (passThrough() || !e.isTrusted) return;
+      if (!e.isTrusted) return;
       const layer = e.target instanceof Element ? e.target.closest('a,div,span,ins') : null;
       if (!isOverlay(layer)) return;
+      if (!active) return suspect('overlay'); // unprotected: just notice it
+      if (passThrough()) return;
       // Hide it now so the next click lands on the real player. Any popup this
       // click still triggers is caught by the window.open / link guards above.
       layer.style.setProperty('display', 'none', 'important');
