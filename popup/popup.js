@@ -35,6 +35,14 @@ function renderEnabled(value) {
 
 $('enabled').addEventListener('change', async (e) => {
   renderEnabled(e.target.checked);
+  if (e.target.checked) {
+    // Replay the glow even on quick on/off/on: drop the class, force a reflow, re-add.
+    const master = e.target.closest('.master');
+    master.classList.remove('pulse');
+    void master.offsetWidth;
+    master.classList.add('pulse');
+    master.addEventListener('animationend', () => master.classList.remove('pulse'), { once: true });
+  }
   await chrome.storage.sync.set({ enabled: e.target.checked });
 });
 

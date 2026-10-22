@@ -10,6 +10,8 @@
   --on: #34c759;
   --switch-off: #ffffff;
   --switch-off-border: #e5e5ea;
+  --r-card: 18px;    /* cards, panels */
+  --r-control: 12px; /* buttons, inputs, tiles */
   color-scheme: light;
 }
 
@@ -55,16 +57,33 @@ h1 { font-size: 15px; margin: 0; font-weight: 600; flex: 1; }
 }
 .master .track::before {
   content: ""; position: absolute; width: 24px; height: 24px; left: 2px; top: 2px;
-  background: #fff; border-radius: 50%;
+  background: #fff; border-radius: 24px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, .25), 0 0 0 .5px rgba(0, 0, 0, .06);
-  transition: transform .2s cubic-bezier(.3, 1.3, .6, 1);
+  /* springy slide with a little overshoot; width eases for the press-stretch */
+  transition: transform .38s cubic-bezier(.34, 1.56, .64, 1), width .2s ease;
 }
 .master input:checked + .track { background: var(--on); box-shadow: none; }
 .master input:checked + .track::before { transform: translateX(18px); }
+
+/* while pressed, the knob stretches toward where it's going (46 - 2 - 30 - 2 = 12) */
+.master:active .track::before { width: 30px; }
+.master:active input:checked + .track::before { transform: translateX(12px); }
+
+/* one soft green ring when switched on (class added by popup.js on change only) */
+.master.pulse .track { animation: pg-pulse .6s ease-out; }
+@keyframes pg-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--on) 55%, transparent); }
+  to { box-shadow: 0 0 0 9px color-mix(in srgb, var(--on) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .master .track, .master .track::before { transition: none; }
+  .master.pulse .track { animation: none; }
+}
 .master input:focus-visible + .track { outline: 2px solid var(--on); outline-offset: 2px; }
 
 .paused {
-  margin: -4px 0 12px; padding: 8px 10px; border-radius: 8px;
+  margin: -4px 0 12px; padding: 9px 12px; border-radius: var(--r-control);
   background: var(--surface); border: 1px solid var(--border); color: var(--muted);
 }
 main.paused-look { opacity: .45; filter: grayscale(1); transition: opacity .2s; }
@@ -72,8 +91,8 @@ main.paused-look { opacity: .45; filter: grayscale(1); transition: opacity .2s; 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: var(--r-card);
+  padding: 14px;
   margin-bottom: 14px;
 }
 
@@ -103,10 +122,10 @@ main.paused-look { opacity: .45; filter: grayscale(1); transition: opacity .2s; 
 .switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 button {
-  font: inherit; cursor: pointer; border-radius: 7px; padding: 6px 12px;
+  font: inherit; cursor: pointer; border-radius: var(--r-control); padding: 7px 14px;
   border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); font-weight: 600;
 }
-button.secondary { width: 100%; margin-top: 10px; background: transparent; color: var(--text); border-color: var(--border); }
+button.secondary { width: 100%; margin-top: 12px; padding: 9px 14px; background: transparent; color: var(--text); border-color: var(--border); }
 button.secondary:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: .6; cursor: default; }
 
@@ -121,6 +140,15 @@ li .remove {
   background: none; border: 0; color: var(--muted); padding: 0 6px; font-size: 16px; line-height: 1;
 }
 li .remove:hover { color: var(--accent); }
+
+/* protected sites as one rounded group with inset dividers, instead of bare lines */
+#sites {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-control);
+  padding: 0 4px 0 12px; margin-bottom: 10px;
+}
+#sites li { padding: 8px 0; }
+#sites li:last-child { border-bottom: 0; }
+#sites li.empty { padding: 10px 8px 10px 0; }
 
 /* --- all-time stats ------------------------------------------------------- */
 
@@ -151,7 +179,7 @@ li .remove:hover { color: var(--accent); }
 
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
 .tile {
-  display: flex; flex-direction: column; gap: 1px; padding: 10px 8px; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 1px; padding: 10px; border-radius: var(--r-control);
   background: color-mix(in srgb, var(--surface) 65%, transparent);
   border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
@@ -167,7 +195,7 @@ li .remove:hover { color: var(--accent); }
 .chart .day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
 .chart .bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
 .chart .bar {
-  width: 100%; min-height: 2px; border-radius: 4px 4px 2px 2px;
+  width: 100%; min-height: 3px; border-radius: 6px 6px 3px 3px;
   background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .chart .day.today .bar { background: var(--accent); }
@@ -177,8 +205,8 @@ ul.bars { max-height: none; margin-bottom: 14px; }
 ul.bars li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; border: 0; padding: 3px 0; }
 ul.bars .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ul.bars .n { font-variant-numeric: tabular-nums; color: var(--muted); }
-ul.bars .meter { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: var(--surface); overflow: hidden; }
-ul.bars .meter span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+ul.bars .meter { grid-column: 1 / -1; height: 5px; border-radius: 5px; background: var(--surface); overflow: hidden; }
+ul.bars .meter span { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
 
 .split { display: flex; height: 8px; border-radius: 8px; overflow: hidden; background: var(--surface); }
 .split .before, .dot.before { background: var(--on); }
@@ -197,7 +225,7 @@ button.link:hover { color: var(--text); }
 
 form { display: flex; gap: 6px; }
 input[type="text"] {
-  flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 7px;
+  flex: 1; min-width: 0; font: inherit; padding: 7px 12px; border-radius: var(--r-control);
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
 }
 input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
