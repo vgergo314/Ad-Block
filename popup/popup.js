@@ -1,4 +1,4 @@
-import { ALLOW_WINDOW_MS, getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
+import { getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
 import { getStats, KINDS, lastDays } from '../lib/stats.js';
 
 const $ = (id) => document.getElementById(id);
@@ -218,13 +218,9 @@ function showAllowState(until) {
   countdown = setInterval(tick, 250);
 }
 
+// Shared with the right-click menu: the background does the actual work.
 $('allow').addEventListener('click', async () => {
-  const until = Date.now() + ALLOW_WINDOW_MS;
-  const { allow = {} } = await chrome.storage.session.get('allow');
-  allow[tab.id] = until;
-  await chrome.storage.session.set({ allow });
-  chrome.tabs.sendMessage(tab.id, { type: 'allow', until }).catch(() => {});
-  showAllowState(until);
+  showAllowState(await chrome.runtime.sendMessage({ type: 'allowNext', tabId: tab.id }));
 });
 
 // Layer 1 deletes the entry when it lets a popup through — reset the button then.

@@ -1,4 +1,4 @@
-import { getEnabled, getSites, hostOf, isSameSite, matchSite } from './lib/sites.js';
+import { ALLOW_WINDOW_MS, getEnabled, getSites, hostOf, isSameSite, matchSite, normalizeHost } from './lib/sites.js';
 import { addBlock, getStats, KINDS } from './lib/stats.js';
 
 // Layer 2 (content/main.js + content/bridge.js) is declared in manifest.json and
@@ -62,6 +62,16 @@ function recordBlock(tabId, host, kind) {
 async function getAllowUntil(tabId) {
   const { allow = {} } = await chrome.storage.session.get('allow');
   return allow[tabId] ?? 0;
+}
+
+/** "Let the next popup through" for ALLOW_WINDOW_MS, from the popup or the menu. Returns the deadline. */
+async function allowNextPopup(tabId) {
+  const until = Date.now() + ALLOW_WINDOW_MS;
+  const { allow = {} } = await chrome.storage.session.get('allow');
+  allow[tabId] = until;
+  await chrome.storage.session.set({ allow });
+  chrome.tabs.sendMessage(tabId, { type: 'allow', until }).catch(() => {}); // every frame's bridge.js
+  return until;
 }
 
 /** If "allow next popup" is active for this tab, use it up and return true. */
@@ -146,6 +156,78 @@ chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }
 });
 
 // ---------------------------------------------------------------------------
+// Right-click menu: a "Popup Guard" submenu on pages, and the same items
+// directly in the toolbar icon's menu. Labels follow the active tab.
+// ---------------------------------------------------------------------------
+
+const PAGE_CONTEXTS = ['page', 'frame', 'link', 'image', 'video', 'audio', 'selection', 'editable'];
+const MENU_ITEMS = [
+  ['toggle', 'Protect this site'],
+  ['allow', 'Let the next popup through'],
+  ['pause', 'Pause Popup Guard'],
+];
+const ignoreError = () => void chrome.runtime.lastError;
+
+function createMenus() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'page', title: 'Popup Guard', contexts: PAGE_CONTEXTS }, ignoreError);
+    for (const [id, title] of MENU_ITEMS) {
+      chrome.contextMenus.create({ id: `page:${id}`, parentId: 'page', title, contexts: PAGE_CONTEXTS }, ignoreError);
+      chrome.contextMenus.create({ id: `action:${id}`, title, contexts: ['action'] }, ignoreError);
+    }
+    refreshMenus();
+  });
+}
+
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return tab;
+}
+
+async function refreshMenus(tab) {
+  tab ??= await activeTab();
+  const host = hostOf(tab?.url);
+  const entry = host ? matchSite(host, await getSites()) : null;
+  const enabled = await getEnabled();
+  const update = (id, props) => {
+    for (const where of ['page', 'action']) chrome.contextMenus.update(`${where}:${id}`, props, ignoreError);
+  };
+  update('toggle', { title: entry ? 'Stop protecting this site' : 'Protect this site', enabled: !!host });
+  update('allow', { visible: !!entry && enabled });
+  update('pause', { title: enabled ? 'Pause Popup Guard' : 'Resume Popup Guard' });
+}
+
+chrome.runtime.onInstalled.addListener(createMenus);
+chrome.tabs.onActivated.addListener(() => refreshMenus());
+chrome.tabs.onUpdated.addListener((_, info, tab) => {
+  if (info.url && tab.active) refreshMenus(tab);
+});
+chrome.windows.onFocusChanged.addListener(() => refreshMenus());
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && (changes.sites || changes.enabled)) refreshMenus();
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const action = String(info.menuItemId).split(':')[1];
+  if (action === 'toggle') {
+    const host = hostOf(tab?.url);
+    if (!host) return;
+    const sites = await getSites();
+    const entry = matchSite(host, sites);
+    if (entry) {
+      await chrome.storage.sync.set({ sites: sites.filter((s) => s !== entry) });
+    } else {
+      await chrome.storage.sync.set({ sites: [...new Set([...sites, normalizeHost(host)])].sort() });
+      chrome.tabs.reload(tab.id); // same as the popup: a tab loaded before install has no guard yet
+    }
+  } else if (action === 'allow' && tab) {
+    await allowNextPopup(tab.id);
+  } else if (action === 'pause') {
+    await chrome.storage.sync.set({ enabled: !(await getEnabled()) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Messages from content/bridge.js and the popup.
 // ---------------------------------------------------------------------------
 
@@ -165,6 +247,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'setSites':
       // Open frames pick the change up live via storage.onChanged in bridge.js.
       chrome.storage.sync.set({ sites: msg.sites }).then(() => sendResponse(true));
+      return true;
+    case 'allowNext':
+      allowNextPopup(msg.tabId).then(sendResponse);
       return true;
     default:
       return false;
