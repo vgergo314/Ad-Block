@@ -67,9 +67,6 @@ function selectTab(tabEl, { focus = false } = {}) {
   }
   if (tabEl === $('tab-stats')) renderStatsView();
   if (focus) tabEl.focus();
-  try {
-    localStorage.setItem('tab', tabEl.id);
-  } catch {}
 }
 
 for (const t of tabs) {
@@ -84,10 +81,7 @@ for (const t of tabs) {
 
 // The header count is a shortcut to the Statistics tab.
 $('stats-toggle').addEventListener('click', () => selectTab($('tab-stats'), { focus: true }));
-
-try {
-  if (localStorage.getItem('tab') === 'tab-stats') selectTab($('tab-stats'));
-} catch {}
+// The popup always opens on Protection (the markup's default); the tab isn't remembered.
 
 async function renderChip() {
   const { total } = await getStats();
