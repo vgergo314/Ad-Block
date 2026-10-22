@@ -90,6 +90,9 @@ async function consumeAllow(tabId) {
   if ((allow[tabId] ?? 0) <= Date.now()) return false;
   delete allow[tabId];
   await chrome.storage.session.set({ allow });
+  // Used up: tell the frames too, or main.js keeps letting popups out until the
+  // deadline and Layer 1 has to close them after they open.
+  chrome.tabs.sendMessage(tabId, { type: 'allow', until: 0 }).catch(() => {});
   return true;
 }
 
