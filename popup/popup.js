@@ -158,7 +158,31 @@ async function checkGuard() {
   }
 }
 
-let guarded = tabHost && enabled && matchSite(tabHost, sites) ? await checkGuard() : null;
+/**
+ * Starts guarding this tab without a reload (a reload closes this popup).
+ * Open frames switch on live; a tab loaded before the extension was installed
+ * or reloaded has no guard yet, so inject one. Both scripts run only once per
+ * frame, so this does nothing where they're already in place. Injected late,
+ * main.js misses ad scripts that saved window.open on load; Layer 1 still
+ * closes what those open. If the guard still doesn't answer, the reload hint shows.
+ */
+async function guardTab() {
+  const target = { tabId: tab.id, allFrames: true };
+  try {
+    await chrome.scripting.executeScript({ target, files: ['content/main.js'], world: 'MAIN', injectImmediately: true });
+    await chrome.scripting.executeScript({ target, files: ['content/bridge.js'], injectImmediately: true });
+  } catch {} // a page extensions can't run on; checkGuard() reports it
+  // bridge.js picks up the new site list asynchronously; give it a moment.
+  for (let i = 0; i < 5; i++) {
+    guarded = await checkGuard();
+    if (guarded !== false) break;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  renderCurrent();
+}
+
+let guarded = null;
+if (tabHost && enabled && matchSite(tabHost, sites)) guardTab();
 
 $('reload-tab').addEventListener('click', () => {
   chrome.tabs.reload(tab.id);
@@ -168,16 +192,13 @@ $('reload-tab').addEventListener('click', () => {
 
 $('toggle').addEventListener('click', async () => {
   const entry = matchSite(tabHost, sites);
+  guarded = null;
   if (entry) {
     await setRule(entry, null);
   } else {
     await setRule(normalizeHost(tabHost), 'block');
-    // Open frames switch live, but a tab loaded before the extension was
-    // installed or reloaded has no guard in it yet, so reload when turning on.
-    chrome.tabs.reload(tab.id);
+    await guardTab();
   }
-  guarded = null; // either reloaded or no longer protected
-  renderCurrent();
 });
 
 async function renderCount() {
@@ -303,7 +324,7 @@ async function renderSuggestion() {
 
 $('suggest-protect').addEventListener('click', async () => {
   await setRule(normalizeHost(tabHost), 'block');
-  chrome.tabs.reload(tab.id); // same as the switch: start guarding from a fresh load
+  await guardTab(); // same as the switch
 });
 
 $('suggest-dismiss').addEventListener('click', async () => {
