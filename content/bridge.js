@@ -69,7 +69,7 @@ if (!globalThis.__popupGuardBridge) {
     if (area === 'sync' && (changes.sites || changes.enabled)) refresh();
   });
 
-  // detail is the block kind from main.js ('window.open', 'link', 'form', 'overlay').
+  // detail is the block kind from main.js ('window.open', 'link', 'form', 'overlay', 'notification').
   // A page could fake these, but that only inflates its own counter.
   window.addEventListener('popupguard:blocked', (e) => {
     if (!state.active) return;

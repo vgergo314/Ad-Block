@@ -102,7 +102,7 @@
       apply(fn, thisArg, args) {
         if (passThrough() || !shouldBlock(thisArg, args)) return Reflect.apply(fn, thisArg, args);
         report(kind);
-        return blockedResult?.();
+        return blockedResult?.(args);
       },
     });
 
@@ -139,6 +139,18 @@
       // script uses this when it thinks an ad blocker is hiding its bait element.
       patchMethod(win.HTMLFormElement?.prototype, 'submit', (f) => isPopupForm(f), 'form');
       patchMethod(win.HTMLFormElement?.prototype, 'requestSubmit', (f, [submitter]) => isPopupForm(f, submitter), 'form');
+
+      // "Allow notifications?" prompts (often behind fake "click Allow to prove
+      // you're not a robot" boxes). On protected tabs these answer "denied"
+      // without Chrome showing anything. Nothing here can ever grant permission,
+      // and nothing is saved to Chrome's site settings.
+      patchMethod(win.Notification, 'requestPermission', () => true, 'notification', ([callback]) => {
+        if (typeof callback === 'function') callback('denied'); // old callback form
+        return Promise.resolve('denied');
+      });
+      patchMethod(win.PushManager?.prototype, 'subscribe', () => true, 'notification', () =>
+        Promise.reject(new DOMException('Permission denied.', 'NotAllowedError')),
+      );
     } catch {
       // cross-origin frame — Layer 1 still covers it
     }

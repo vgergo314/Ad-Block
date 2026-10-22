@@ -24,6 +24,8 @@
   <button id="t-form">8. Hidden &lt;form target=_blank&gt;.submit() (ad-blocker route)</button>
   <button id="t-form-iframe">9. form.submit borrowed from an iframe</button>
   <button id="t-step1">10. Same-site tab that redirects to the ad (step1 trick)</button>
+  <button id="t-notify">11. Ask for notification permission</button>
+  <button id="t-push">12. Push signup (PushManager.subscribe)</button>
   <iframe id="player" src="http://voe.test:8765/test/voe-redirect.html" width="400" height="120"></iframe>
 
   <div id="overlay" hidden></div>
@@ -56,6 +58,15 @@
     };
     document.getElementById('t-step1').onclick = () =>
       window.__adOpen(location.pathname + '?step1=' + encodeURIComponent(AD + '?via-step1'));
+
+    // Results land in window.__notify so the automated test can read them.
+    window.__notify = [];
+    document.getElementById('t-notify').onclick = async () =>
+      window.__notify.push('permission:' + (await Notification.requestPermission()));
+    document.getElementById('t-push').onclick = async () => {
+      try { await PushManager.prototype.subscribe.call({}); window.__notify.push('push:ok'); }
+      catch (e) { window.__notify.push('push:' + e.name); }
+    };
 
     const overlay = document.getElementById('overlay');
     document.getElementById('arm-overlay').onclick = () => setTimeout(() => (overlay.hidden = false));
