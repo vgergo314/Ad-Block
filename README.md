@@ -5,16 +5,18 @@ Chrome extension (Manifest V3) that stops sites from opening ad tabs on every cl
 ## Install
 
 1. Open `chrome://extensions` and turn on **Developer mode** (top right).
-2. Click **Load unpacked** and pick this `popup-guard` folder.
+2. Click **Load unpacked** and pick this folder (the one containing `manifest.json`).
 3. Pin the extension, open the annoying site, click the icon and flip **This site** on. The tab reloads with protection active.
 
 ## How it works
 
 | Layer | File | What it does |
 |---|---|---|
-| 1 | `background.js` | When a protected site opens a tab/window to a different domain (or `about:blank`), closes it immediately. Catches everything, including popups fired from inside the video-player iframe. |
-| 2 | `content/main.js` | Injected into the page **before any site script** (`document_start`, `MAIN` world). Guards `window.open` (including copies borrowed from fresh iframes), script-clicked `<a target=_blank>` links, and invisible full-page click overlays — so the ad tab never even appears. |
-| — | `content/bridge.js` | Relays block counts and the "allow" switch between the page and the extension. |
+| 1 | `background.js` | When a protected site opens a tab/window to a different domain (or `about:blank`), closes it immediately. Also closes a same-site tab it opened that redirects to another domain within 15 s. Catches everything, including popups fired from inside the video-player iframe. |
+| 2 | `content/main.js` | Loads in **every frame of every site, before any site script** (`document_start`, `MAIN` world). Guards `window.open` (including copies borrowed from fresh iframes), script-clicked `<a target=_blank>` links, hidden `<form target=_blank>` submits, and invisible full-page click overlays — so the ad tab never even appears. |
+| — | `content/bridge.js` | Decides whether the frame's **tab** (its address bar) is on a protected site and switches Layer 2 on or off live. Relays block counts and the "allow" switch. |
+
+**Why every frame:** players like voe.sx redirect their iframe to a new random domain on every load and fire the ads from inside it. Chrome can only target scripts by a frame's own address, so Layer 2 is present everywhere and decides at click time by the tab's address. On unprotected sites it passes every call straight through to the real browser function.
 
 Same-site new tabs (e.g. "open episode in new tab") are never blocked.
 
@@ -22,7 +24,7 @@ Same-site new tabs (e.g. "open episode in new tab") are never blocked.
 
 ## Testing
 
-`test/` contains a fake page with each popup trick. Serve the extension folder and open it:
+`test/` contains a fake page with each popup trick. Serve this folder and open it:
 
 ```
 python3 -m http.server 8765
