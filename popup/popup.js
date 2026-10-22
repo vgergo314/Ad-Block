@@ -158,20 +158,32 @@ async function checkGuard() {
   }
 }
 
+/** Is main.js in this tab at all (on or off)? It leaves a marker on window. null if we can't look. */
+async function hasGuard() {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: () => !!window[Symbol.for('popup-guard')],
+    });
+    return result;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Starts guarding this tab without a reload (a reload closes this popup).
- * Open frames switch on live; a tab loaded before the extension was installed
- * or reloaded has no guard yet, so inject one. Both scripts run only once per
- * frame, so this does nothing where they're already in place. Injected late,
- * main.js misses ad scripts that saved window.open on load; Layer 1 still
- * closes what those open. If the guard still doesn't answer, the reload hint shows.
+ * Starts guarding this tab after it was just protected. main.js is already in
+ * every page loaded since install, waiting in pass-through, and switches on live,
+ * so this popup stays open. Only a tab loaded before the extension was installed
+ * or reloaded lacks it; that one is reloaded, which closes the popup, because
+ * main.js must run before the page's scripts save window.open.
  */
 async function guardTab() {
-  const target = { tabId: tab.id, allFrames: true };
-  try {
-    await chrome.scripting.executeScript({ target, files: ['content/main.js'], world: 'MAIN', injectImmediately: true });
-    await chrome.scripting.executeScript({ target, files: ['content/bridge.js'], injectImmediately: true });
-  } catch {} // a page extensions can't run on; checkGuard() reports it
+  if ((await hasGuard()) === false) {
+    chrome.tabs.reload(tab.id);
+    return;
+  }
   // bridge.js picks up the new site list asynchronously; give it a moment.
   for (let i = 0; i < 5; i++) {
     guarded = await checkGuard();
@@ -181,8 +193,7 @@ async function guardTab() {
   renderCurrent();
 }
 
-let guarded = null;
-if (tabHost && enabled && matchSite(tabHost, sites)) guardTab();
+let guarded = tabHost && enabled && matchSite(tabHost, sites) ? await checkGuard() : null;
 
 $('reload-tab').addEventListener('click', () => {
   chrome.tabs.reload(tab.id);
