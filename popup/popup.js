@@ -43,6 +43,13 @@ renderEnabled(await getEnabled());
 // --- all-time stats (pull-down panel) ------------------------------------------
 
 const fmt = (n) => n.toLocaleString();
+const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+
+/** Full number below `limit`, compact above it ("1.3K", "1.2M"); hover shows the exact count. */
+function showCount(el, n, limit) {
+  el.textContent = n < limit ? fmt(n) : compact.format(n);
+  el.title = fmt(n);
+}
 
 function setStatsOpen(open) {
   statsOpen = open;
@@ -78,10 +85,12 @@ async function renderStats() {
   const week = lastDays(stats, 7);
   const today = week.at(-1).count;
 
-  $('total-chip').textContent = fmt(stats.total);
-  $('st-total').textContent = fmt(stats.total);
-  $('st-today').textContent = fmt(today);
-  $('st-week').textContent = fmt(week.reduce((sum, d) => sum + d.count, 0));
+  // The header chip has little room (max ~4 characters); tiles fit 5 digits.
+  showCount($('total-chip'), stats.total, 1_000);
+  $('stats-toggle').title = `${fmt(stats.total)} popups stopped, all time. Click for stats.`;
+  showCount($('st-total'), stats.total, 100_000);
+  showCount($('st-today'), today, 100_000);
+  showCount($('st-week'), week.reduce((sum, d) => sum + d.count, 0), 100_000);
   $('st-empty').hidden = stats.total > 0;
   $('st-details').hidden = stats.total === 0;
 
