@@ -1,6 +1,11 @@
 <!doctype html>
-<!-- Cross-origin "video player" iframe: Layer 2 can't run here, so Layer 1 must catch this. -->
+<!-- Cross-origin "video player" iframe on a random domain (like voe's derricknationtop.com). -->
 <body style="margin:0;background:#222;color:#fff;font:14px system-ui">
-  <button id="play" style="margin:20px">7. Play (popup from cross-origin player iframe)</button>
-  <script>document.getElementById('play').onclick = () => window.open('https://example.org/?from-player');</script>
+  <button id="play" style="margin:12px">7. Play (popup at click time)</button>
+  <button id="play-cached" style="margin:12px">7d. Play (open cached at load)</button>
+  <script>
+    const cachedOpen = window.open; // worst case: grabbed while the frame is still parsing
+    document.getElementById('play').onclick = () => window.open('http://ads.test:8765/test/ad.html?from-player');
+    document.getElementById('play-cached').onclick = () => cachedOpen.call(window, 'http://ads.test:8765/test/ad.html?cached');
+  </script>
 </body>

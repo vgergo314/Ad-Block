@@ -9,8 +9,15 @@
   <header>
     <img src="../icons/icon32.png" alt="" width="20" height="20">
     <h1>Popup Guard</h1>
+    <label class="master" title="Turn Popup Guard on or off everywhere">
+      <input type="checkbox" id="enabled" role="switch" aria-label="Popup Guard on">
+      <span class="track"></span>
+    </label>
   </header>
 
+  <p class="paused" id="paused" hidden>Paused. Popups are allowed on every site until you turn this back on.</p>
+
+  <main id="settings">
   <section class="card" id="current">
     <div class="row">
       <div>
@@ -40,6 +47,7 @@
       <button type="submit">Add</button>
     </form>
   </section>
+  </main>
 
   <script type="module" src="popup.js"></script>
 </body>

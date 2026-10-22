@@ -1,11 +1,27 @@
-// Layer 2 — runs in the PAGE's JS world at document_start, before any site script.
-// Ad scripts grab a reference to window.open on load, so we must be first.
-// No chrome.* APIs here; we talk to content/bridge.js through DOM events/attributes.
+// Layer 2 — runs in the PAGE's JS world at document_start, before any site script,
+// in EVERY frame of EVERY site. Ad scripts grab a reference to window.open on load,
+// so the guards must be in place first, even in a voe.sx player frame whose
+// domain changes every load.
+//
+// The guards start in pass-through mode and only block once content/bridge.js
+// says this frame's TAB (its address bar) is on a protected site. On normal
+// sites every call goes straight to the real browser function.
+// No chrome.* APIs here; bridge.js talks to us with 'popupguard:state' events.
 (() => {
-  // Background may also inject this into an already-open player frame; run once.
+  // An older build may have registered this file a second time; run once.
   const ONCE = Symbol.for('popup-guard');
   if (window[ONCE]) return;
   Object.defineProperty(window, ONCE, { value: true });
+
+  let active = false; // is this frame's tab on a protected site?
+  let allowUntil = 0; // "Let the next popup through" deadline
+  window.addEventListener('popupguard:state', (e) => {
+    try {
+      ({ active, allowUntil } = JSON.parse(e.detail));
+    } catch {}
+  });
+
+  const passThrough = () => !active || allowUntil > Date.now();
 
   const ownHost = location.hostname;
 
@@ -23,9 +39,6 @@
       return true;
     }
   };
-
-  // bridge.js sets this when the user presses "Allow next popup".
-  const allowed = () => Number(document.documentElement?.dataset.pgAllowUntil ?? 0) > Date.now();
 
   const report = (kind) => window.dispatchEvent(new CustomEvent('popupguard:blocked', { detail: kind }));
 
@@ -63,7 +76,7 @@
   const guard = (realFn, shouldBlock, kind, blockedResult) =>
     new Proxy(realFn, {
       apply(fn, thisArg, args) {
-        if (allowed() || !shouldBlock(thisArg, args)) return Reflect.apply(fn, thisArg, args);
+        if (passThrough() || !shouldBlock(thisArg, args)) return Reflect.apply(fn, thisArg, args);
         report(kind);
         return blockedResult?.();
       },
@@ -81,10 +94,11 @@
       if (!win || patched.has(win)) return;
       patched.add(win);
 
+      // Left writable: some normal sites' libraries wrap window.open themselves.
       Object.defineProperty(win, 'open', {
         value: guard(win.open, (_, [url]) => isForeign(url), 'window.open', fakeWindow),
-        writable: false,
-        configurable: false,
+        writable: true,
+        configurable: true,
       });
 
       // Trick: build a hidden <a target=_blank> and click it from script.
@@ -131,7 +145,7 @@
 
   // Real clicks on foreign new-tab links (often a full-page invisible <a> over the player).
   const onRealClick = (e) => {
-    if (allowed()) return;
+    if (passThrough()) return;
     const a = e.target instanceof Element ? e.target.closest('a') : null;
     if (isPopupLink(a)) {
       e.preventDefault();
@@ -144,7 +158,7 @@
   window.addEventListener(
     'submit',
     (e) => {
-      if (!allowed() && isPopupForm(e.target, e.submitter)) {
+      if (!passThrough() && isPopupForm(e.target, e.submitter)) {
         e.preventDefault();
         report('form');
       }
@@ -174,7 +188,7 @@
   window.addEventListener(
     'pointerdown',
     (e) => {
-      if (allowed() || !e.isTrusted) return;
+      if (passThrough() || !e.isTrusted) return;
       const layer = e.target instanceof Element ? e.target.closest('a,div,span,ins') : null;
       if (!isOverlay(layer)) return;
       // Hide it now so the next click lands on the real player. Any popup this

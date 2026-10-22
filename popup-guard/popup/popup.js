@@ -1,4 +1,4 @@
-import { ALLOW_WINDOW_MS, getPlayerHosts, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
+import { ALLOW_WINDOW_MS, getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -6,26 +6,28 @@ const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const tabHost = tab ? hostOf(tab.url) : null;
 
 let sites = await getSites();
-let playerHosts = await getPlayerHosts();
 
 async function saveSites(next) {
   sites = [...new Set(next)].sort();
-  await chrome.runtime.sendMessage({ type: 'setLists', sites });
+  await chrome.runtime.sendMessage({ type: 'setSites', sites });
   render();
 }
 
-async function savePlayerHosts(next) {
-  playerHosts = next;
-  await chrome.runtime.sendMessage({ type: 'setLists', playerHosts });
-  render();
+// --- master on/off switch ----------------------------------------------------
+// Applies live: open frames switch to pass-through (or back) without a reload.
+
+function renderEnabled(enabled) {
+  $('enabled').checked = enabled;
+  $('paused').hidden = enabled;
+  $('settings').inert = !enabled;
 }
 
-// The background learns new player hosts while the popup may be open.
-chrome.storage.sync.onChanged.addListener((changes) => {
-  if (!changes.playerHosts) return;
-  playerHosts = changes.playerHosts.newValue ?? [];
-  renderSites();
+$('enabled').addEventListener('change', async (e) => {
+  renderEnabled(e.target.checked);
+  await chrome.storage.sync.set({ enabled: e.target.checked });
 });
+
+renderEnabled(await getEnabled());
 
 // --- current site card -----------------------------------------------------
 
@@ -51,8 +53,9 @@ $('toggle').addEventListener('change', async (e) => {
   const entry = matchSite(tabHost, sites);
   if (e.target.checked && !entry) await saveSites([...sites, normalizeHost(tabHost)]);
   if (!e.target.checked && entry) await saveSites(sites.filter((s) => s !== entry));
-  // The page script only injects at page load, so reload to apply.
-  chrome.tabs.reload(tab.id);
+  // Open frames switch live, but a tab loaded before the extension was
+  // installed or reloaded has no guard in it yet, so reload when turning on.
+  if (e.target.checked) chrome.tabs.reload(tab.id);
 });
 
 async function renderCount() {
@@ -104,33 +107,12 @@ chrome.storage.session.onChanged.addListener((changes) => {
 
 // --- site list --------------------------------------------------------------
 
-function siteRow(host, onRemove, tagText) {
-  const li = document.createElement('li');
-  const name = document.createElement('span');
-  name.textContent = host;
-  if (tagText) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = tagText;
-    tag.title = 'Video player embedded in a protected site. Added automatically after it opened an ad.';
-    name.append(' ', tag);
-  }
-  const remove = document.createElement('button');
-  remove.className = 'remove';
-  remove.title = `Stop protecting ${host}`;
-  remove.textContent = '×';
-  remove.addEventListener('click', onRemove);
-  li.append(name, remove);
-  return li;
-}
-
 function renderSites() {
   const list = $('sites');
   list.replaceChildren();
-  const total = sites.length + playerHosts.length;
-  $('site-count').textContent = total ? `(${total})` : '';
+  $('site-count').textContent = sites.length ? `(${sites.length})` : '';
 
-  if (!total) {
+  if (!sites.length) {
     const li = document.createElement('li');
     li.className = 'empty';
     li.textContent = 'No sites yet. Use the switch above or add one below.';
@@ -139,10 +121,16 @@ function renderSites() {
   }
 
   for (const site of sites) {
-    list.append(siteRow(site, () => saveSites(sites.filter((s) => s !== site))));
-  }
-  for (const host of playerHosts) {
-    list.append(siteRow(host, () => savePlayerHosts(playerHosts.filter((h) => h !== host)), 'player'));
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = site;
+    const remove = document.createElement('button');
+    remove.className = 'remove';
+    remove.title = `Stop protecting ${site}`;
+    remove.textContent = '×';
+    remove.addEventListener('click', () => saveSites(sites.filter((s) => s !== site)));
+    li.append(name, remove);
+    list.append(li);
   }
 }
 

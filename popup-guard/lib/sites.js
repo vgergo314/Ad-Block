@@ -39,18 +39,13 @@ export function baseDomain(hostname) {
 
 export const isSameSite = (a, b) => baseDomain(a) === baseDomain(b);
 
-/** Chrome match patterns for one protected site, including its subdomains. */
-export function matchPatternsFor(site) {
-  return isIp(site) ? [`*://${site}/*`] : [`*://${site}/*`, `*://*.${site}/*`];
-}
-
 export async function getSites() {
   const { sites = [] } = await chrome.storage.sync.get('sites');
   return sites;
 }
 
-/** Video-player hosts (e.g. voe.sx) learned when they popped up ads from inside a protected page. */
-export async function getPlayerHosts() {
-  const { playerHosts = [] } = await chrome.storage.sync.get('playerHosts');
-  return playerHosts;
+/** Master on/off switch in the popup. On unless the user paused it. */
+export async function getEnabled() {
+  const { enabled = true } = await chrome.storage.sync.get('enabled');
+  return enabled;
 }
