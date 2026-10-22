@@ -9,23 +9,19 @@
   <header>
     <svg class="logo" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#fff" stroke="#d93a2b" stroke-width="2.5"/><path d="M5.5 5.5l13 13" stroke="#d93a2b" stroke-width="2.5"/></svg>
     <h1>Popup Guard</h1>
-    <button type="button" class="count-chip" id="stats-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="stats">
+    <!-- Shortcut to the Statistics tab. -->
+    <button type="button" class="count-chip" id="stats-toggle" aria-controls="panel-stats">
       <span id="total-chip">0</span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
     </button>
     <button type="button" class="switch master" id="enabled" role="switch" aria-checked="true" aria-label="Popup Guard on or off"><span></span></button>
   </header>
 
-  <!-- Drops down from the count chip over the rest of the popup. -->
-  <div class="scrim" id="scrim" hidden></div>
-  <div class="menu" id="stats" role="menu" aria-label="Blocked popups" hidden>
-    <div class="menu-title" id="st-title"></div>
-    <ul id="st-sites"></ul>
-    <div class="menu-sep"></div>
-    <button type="button" role="menuitem" class="menu-item" id="st-open">All statistics</button>
-    <button type="button" role="menuitem" class="menu-item" id="st-reset">Reset count</button>
+  <div class="tabs" role="tablist" aria-label="Popup Guard">
+    <button type="button" role="tab" id="tab-protect" aria-controls="panel-protect" aria-selected="true">Protection</button>
+    <button type="button" role="tab" id="tab-stats" aria-controls="panel-stats" aria-selected="false" tabindex="-1">Statistics</button>
   </div>
 
+  <div id="panel-protect" role="tabpanel" aria-labelledby="tab-protect">
   <main id="settings">
     <section class="site" id="current" aria-label="This site">
       <div class="site-row">
@@ -76,6 +72,60 @@
     <span id="badge-label">Show count on icon</span>
     <button type="button" class="switch small" id="badge-count" role="switch" aria-checked="false" aria-labelledby="badge-label"><span></span></button>
   </footer>
+  </div>
+
+  <!-- Every bar is drawn to scale from a zero baseline (see stats-view.js). -->
+  <div id="panel-stats" class="stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+    <div class="tiles">
+      <div class="tile"><span>All time</span><b id="sv-total">0</b></div>
+      <div class="tile"><span>Today</span><b id="sv-today">0</b></div>
+      <div class="tile"><span>Last 7 days</span><b id="sv-week">0</b></div>
+      <div class="tile"><span>Last 30 days</span><b id="sv-month">0</b></div>
+    </div>
+
+    <p class="stats-empty" id="sv-empty" hidden>Nothing blocked yet. Popups blocked on your protected sites will show up here.</p>
+
+    <div id="sv-details">
+      <section aria-labelledby="sv-days-title">
+        <div class="stats-head">
+          <h2 class="section-title" id="sv-days-title">Blocked per day</h2>
+          <div class="range" id="sv-range" role="group" aria-label="Time range">
+            <button type="button" data-days="7" aria-pressed="true">7 days</button>
+            <button type="button" data-days="30" aria-pressed="false">30 days</button>
+          </div>
+        </div>
+        <div class="chart">
+          <div class="grid" id="sv-grid" aria-hidden="true"></div>
+          <div class="cols" id="sv-cols" role="img"></div>
+        </div>
+        <div class="xlabels" id="sv-xlabels" aria-hidden="true"></div>
+        <details>
+          <summary>Show as table</summary>
+          <table>
+            <thead><tr><th scope="col">Day</th><th scope="col">Blocked</th></tr></thead>
+            <tbody id="sv-table"></tbody>
+          </table>
+        </details>
+      </section>
+
+      <section aria-labelledby="sv-sites-title">
+        <h2 class="section-title" id="sv-sites-title">By site</h2>
+        <ul class="hbars" id="sv-sites"></ul>
+      </section>
+
+      <section aria-labelledby="sv-kinds-title">
+        <h2 class="section-title" id="sv-kinds-title">How they were stopped</h2>
+        <ul class="hbars" id="sv-kinds"></ul>
+      </section>
+
+      <p class="stats-foot">
+        <span>Counted on this computer only.</span>
+        <button type="button" class="link quiet" id="sv-reset">Reset stats</button>
+      </p>
+    </div>
+  </div>
+
+  <div class="tooltip" id="sv-tip" role="tooltip" hidden></div>
 
   <script type="module" src="popup.js"></script>
 </body>

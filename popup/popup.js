@@ -1,5 +1,6 @@
 import { getAlwaysAllow, getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
 import { getStats } from '../lib/stats.js';
+import { renderStatsView } from './stats-view.js';
 import { getSuggestState, suggestionFor } from '../lib/suggest.js';
 
 const $ = (id) => document.getElementById(id);
@@ -49,67 +50,54 @@ $('enabled').addEventListener('click', async () => {
   await chrome.storage.sync.set({ enabled });
 });
 
-// --- blocked count menu ------------------------------------------------------------
+// --- tabs: Protection / Statistics --------------------------------------------------
 
 const fmt = (n) => n.toLocaleString();
 const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
 const plural = (n, word) => `${word}${n === 1 ? '' : 's'}`;
 
-function setMenuOpen(open) {
-  $('stats').hidden = !open;
-  $('scrim').hidden = !open;
-  $('stats-toggle').setAttribute('aria-expanded', String(open));
+const tabs = [$('tab-protect'), $('tab-stats')];
+
+function selectTab(tabEl, { focus = false } = {}) {
+  for (const t of tabs) {
+    const selected = t === tabEl;
+    t.setAttribute('aria-selected', String(selected));
+    t.tabIndex = selected ? 0 : -1;
+    $(t.getAttribute('aria-controls')).hidden = !selected;
+  }
+  if (tabEl === $('tab-stats')) renderStatsView();
+  if (focus) tabEl.focus();
+  try {
+    localStorage.setItem('tab', tabEl.id);
+  } catch {}
 }
 
-$('stats-toggle').addEventListener('click', (e) => {
-  setMenuOpen($('stats').hidden);
-  // Opened from the keyboard (no pointer, so detail is 0): move focus into the menu,
-  // onto the safe item, never onto "Reset count".
-  if (!$('stats').hidden && e.detail === 0) $('st-open').focus();
-});
+for (const t of tabs) {
+  t.addEventListener('click', () => selectTab(t));
+  // Arrow keys move between tabs (the usual tablist keyboard pattern).
+  t.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    selectTab(tabs[(tabs.indexOf(t) + 1) % tabs.length], { focus: true });
+  });
+}
 
-$('st-open').addEventListener('click', () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL('stats/stats.html') });
-  window.close();
-});
-$('scrim').addEventListener('click', () => setMenuOpen(false));
-$('stats').addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  e.preventDefault(); // or Chrome closes the whole popup
-  setMenuOpen(false);
-  $('stats-toggle').focus();
-});
+// The header count is a shortcut to the Statistics tab.
+$('stats-toggle').addEventListener('click', () => selectTab($('tab-stats'), { focus: true }));
 
-$('st-reset').addEventListener('click', async () => {
-  if (!confirm('Reset the blocked popup count? This can’t be undone.')) return;
-  await chrome.storage.local.remove('stats');
-  setMenuOpen(false);
-});
+try {
+  if (localStorage.getItem('tab') === 'tab-stats') selectTab($('tab-stats'));
+} catch {}
 
-async function renderStats() {
-  const stats = await getStats();
-
+async function renderChip() {
+  const { total } = await getStats();
   // The header chip has little room (max ~4 characters).
-  $('total-chip').textContent = stats.total < 1_000 ? fmt(stats.total) : compact.format(stats.total);
-  $('stats-toggle').setAttribute('aria-label', `${fmt(stats.total)} ${plural(stats.total, 'popup')} blocked in total, show details`);
-  $('st-title').textContent = stats.total
-    ? `${fmt(stats.total)} ${plural(stats.total, 'popup')} blocked in total`
-    : 'No popups blocked yet';
-  $('st-reset').disabled = stats.total === 0;
-
-  $('st-sites').replaceChildren(
-    ...Object.entries(stats.sites)
-      .sort((a, b) => b[1] - a[1])
-      .map(([site, n]) => {
-        const item = document.createElement('li');
-        item.append(span(site, 'name'), span(fmt(n), 'n'));
-        return item;
-      }),
-  );
+  $('total-chip').textContent = total < 1_000 ? fmt(total) : compact.format(total);
+  $('stats-toggle').setAttribute('aria-label', `${fmt(total)} ${plural(total, 'popup')} blocked in total, show statistics`);
 }
 
 chrome.storage.local.onChanged.addListener((changes) => {
-  if (changes.stats) renderStats();
+  if (changes.stats) renderChip();
 });
 
 function span(text, className) {
@@ -366,7 +354,7 @@ function render() {
 }
 
 render();
-renderStats();
+renderChip();
 renderCount();
 if (tab) {
   const { allow = {} } = await chrome.storage.session.get('allow');
