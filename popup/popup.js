@@ -1,4 +1,5 @@
 import { ALLOW_WINDOW_MS, getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
+import { getStats, KINDS, lastDays } from '../lib/stats.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,10 +17,20 @@ async function saveSites(next) {
 // --- master on/off switch ----------------------------------------------------
 // Applies live: open frames switch to pass-through (or back) without a reload.
 
-function renderEnabled(enabled) {
+let enabled = true;
+let statsOpen = false;
+
+// Settings can't be used while paused, or while the stats panel covers them.
+function updateSettingsInert() {
+  $('settings').inert = !enabled || statsOpen;
+  $('settings').classList.toggle('paused-look', !enabled);
+}
+
+function renderEnabled(value) {
+  enabled = value;
   $('enabled').checked = enabled;
   $('paused').hidden = enabled;
-  $('settings').inert = !enabled;
+  updateSettingsInert();
 }
 
 $('enabled').addEventListener('change', async (e) => {
@@ -28,6 +39,108 @@ $('enabled').addEventListener('change', async (e) => {
 });
 
 renderEnabled(await getEnabled());
+
+// --- all-time stats (pull-down panel) ------------------------------------------
+
+const fmt = (n) => n.toLocaleString();
+
+function setStatsOpen(open) {
+  statsOpen = open;
+  const stage = document.querySelector('.stage');
+  stage.classList.toggle('stats-open', open);
+  // The panel is absolutely positioned; stretch the popup to fit it while open.
+  stage.style.minHeight = open ? `${$('stats').scrollHeight}px` : '';
+  $('stats').inert = !open;
+  $('stats-toggle').setAttribute('aria-expanded', String(open));
+  updateSettingsInert();
+}
+
+$('stats-toggle').addEventListener('click', () => setStatsOpen(!statsOpen));
+$('st-close').addEventListener('click', () => setStatsOpen(false));
+$('st-reset').addEventListener('click', async () => {
+  if (confirm('Reset all popup statistics? This can’t be undone.')) await chrome.storage.local.remove('stats');
+});
+
+function li(...cells) {
+  const item = document.createElement('li');
+  for (const cell of cells) item.append(cell);
+  return item;
+}
+
+function span(text, className) {
+  const el = document.createElement('span');
+  el.textContent = text;
+  if (className) el.className = className;
+  return el;
+}
+
+async function renderStats() {
+  const stats = await getStats();
+  const week = lastDays(stats, 7);
+  const today = week.at(-1).count;
+
+  $('total-chip').textContent = fmt(stats.total);
+  $('st-total').textContent = fmt(stats.total);
+  $('st-today').textContent = fmt(today);
+  $('st-week').textContent = fmt(week.reduce((sum, d) => sum + d.count, 0));
+  $('st-empty').hidden = stats.total > 0;
+  $('st-details').hidden = stats.total === 0;
+
+  // 7-day chart
+  const max = Math.max(1, ...week.map((d) => d.count));
+  $('st-chart').replaceChildren(
+    ...week.map(({ date, count }, i) => {
+      const day = document.createElement('div');
+      day.className = `day${i === week.length - 1 ? ' today' : ''}`;
+      day.title = `${date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}: ${fmt(count)}`;
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-wrap';
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.style.height = `${(count / max) * 100}%`;
+      wrap.append(bar);
+      const label = document.createElement('small');
+      label.textContent = date.toLocaleDateString(undefined, { weekday: 'narrow' });
+      day.append(wrap, label);
+      return day;
+    }),
+  );
+
+  // per site
+  const siteRows = Object.entries(stats.sites).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const top = siteRows[0]?.[1] ?? 1;
+  $('st-sites').replaceChildren(
+    ...siteRows.map(([site, n]) => {
+      const meter = span('', 'meter');
+      const fill = document.createElement('span');
+      fill.style.width = `${(n / top) * 100}%`;
+      meter.append(fill);
+      return li(span(site, 'name'), span(fmt(n), 'n'), meter);
+    }),
+  );
+
+  // how they were stopped: Layer 2 (before opening) vs Layer 1 (closed after opening)
+  const closed = stats.kinds.closed ?? 0;
+  const before = stats.total - closed;
+  const pct = (n) => `${Math.round((n / Math.max(1, stats.total)) * 100)}%`;
+  $('st-split').querySelector('.before').style.width = pct(before);
+  $('st-split').querySelector('.closed').style.width = pct(closed);
+  $('st-before').textContent = pct(before);
+  $('st-closed').textContent = pct(closed);
+  $('st-kinds').replaceChildren(
+    ...Object.entries(KINDS)
+      .filter(([kind]) => stats.kinds[kind])
+      .sort((a, b) => stats.kinds[b[0]] - stats.kinds[a[0]])
+      .map(([kind, label]) => li(span(label), span(fmt(stats.kinds[kind])))),
+  );
+
+  if (statsOpen) setStatsOpen(true); // re-fit height after content changed
+}
+
+chrome.storage.local.onChanged.addListener((changes) => {
+  if (changes.stats) renderStats();
+});
+await renderStats();
 
 // --- current site card -----------------------------------------------------
 

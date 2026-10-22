@@ -67,7 +67,7 @@ h1 { font-size: 15px; margin: 0; font-weight: 600; flex: 1; }
   margin: -4px 0 12px; padding: 8px 10px; border-radius: 8px;
   background: var(--surface); border: 1px solid var(--border); color: var(--muted);
 }
-main[inert] { opacity: .45; filter: grayscale(1); transition: opacity .2s; }
+main.paused-look { opacity: .45; filter: grayscale(1); transition: opacity .2s; }
 
 .card {
   background: var(--surface);
@@ -121,6 +121,79 @@ li .remove {
   background: none; border: 0; color: var(--muted); padding: 0 6px; font-size: 16px; line-height: 1;
 }
 li .remove:hover { color: var(--accent); }
+
+/* --- all-time stats ------------------------------------------------------- */
+
+.total-chip {
+  display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.total-chip:hover { border-color: var(--muted); }
+.total-chip .caret { color: var(--muted); font-size: 10px; transition: transform .25s; }
+.total-chip[aria-expanded="true"] .caret { transform: rotate(180deg); }
+
+/* the stats panel lies over the settings and is revealed top-down; popup.js
+   stretches .stage to the panel's height while it's open */
+/* clip, so the hidden panel doesn't stretch the popup; margin keeps focus rings visible */
+.stage { position: relative; overflow: clip; overflow-clip-margin: 4px; }
+
+.stats {
+  position: absolute; top: 0; left: 0; right: 0;
+  background: var(--bg); z-index: 1;
+  clip-path: inset(0 0 100% 0); visibility: hidden;
+  transition: clip-path .32s cubic-bezier(.2, .8, .2, 1), visibility 0s .32s;
+}
+.stats > * { transform: translateY(-10px); opacity: 0; transition: transform .32s, opacity .2s; }
+.stage.stats-open .stats { clip-path: inset(0 0 0 0); visibility: visible; transition: clip-path .32s cubic-bezier(.2, .8, .2, 1); }
+.stage.stats-open .stats > * { transform: none; opacity: 1; }
+.stage.stats-open main { opacity: 0; transition: opacity .2s; }
+
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
+.tile {
+  display: flex; flex-direction: column; gap: 1px; padding: 10px 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  backdrop-filter: blur(8px);
+}
+.tile b { font-size: 19px; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tile:first-child b { color: var(--accent); }
+.tile span { color: var(--muted); font-size: 11px; }
+
+.stats-empty { color: var(--muted); margin: 0 0 12px; }
+
+.chart { display: flex; align-items: flex-end; gap: 6px; height: 74px; margin: 4px 0 14px; }
+.chart .day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+.chart .bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.chart .bar {
+  width: 100%; min-height: 2px; border-radius: 4px 4px 2px 2px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.chart .day.today .bar { background: var(--accent); }
+.chart .day small { color: var(--muted); font-size: 10px; }
+
+ul.bars { max-height: none; margin-bottom: 14px; }
+ul.bars li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; border: 0; padding: 3px 0; }
+ul.bars .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ul.bars .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+ul.bars .meter { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: var(--surface); overflow: hidden; }
+ul.bars .meter span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+
+.split { display: flex; height: 8px; border-radius: 8px; overflow: hidden; background: var(--surface); }
+.split .before, .dot.before { background: var(--on); }
+.split .closed, .dot.closed { background: var(--accent); }
+.split-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 8px; color: var(--muted); font-size: 12px; }
+.split-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+
+ul.kinds { max-height: none; margin-bottom: 10px; }
+ul.kinds li { padding: 4px 0; font-size: 12px; }
+ul.kinds li span:last-child { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+.stats-foot { display: flex; justify-content: space-between; padding-top: 6px; }
+button.link { background: none; border: 0; padding: 2px 0; color: var(--muted); font-weight: 500; }
+button.link:hover { color: var(--text); }
 
 form { display: flex; gap: 6px; }
 input[type="text"] {

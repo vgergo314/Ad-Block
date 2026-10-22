@@ -69,8 +69,12 @@ if (!globalThis.__popupGuardBridge) {
     if (area === 'sync' && (changes.sites || changes.enabled)) refresh();
   });
 
-  window.addEventListener('popupguard:blocked', () => {
-    chrome.runtime.sendMessage({ type: 'blocked' }).catch(() => {});
+  // detail is the block kind from main.js ('window.open', 'link', 'form', 'overlay').
+  // A page could fake these, but that only inflates its own counter.
+  window.addEventListener('popupguard:blocked', (e) => {
+    if (!state.active) return;
+    const kind = typeof e.detail === 'string' ? e.detail : undefined;
+    chrome.runtime.sendMessage({ type: 'blocked', kind }).catch(() => {});
   });
 
   chrome.runtime.onMessage.addListener((msg) => {

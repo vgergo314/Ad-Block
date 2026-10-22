@@ -1,4 +1,5 @@
 import { getEnabled, getSites, hostOf, isSameSite, matchSite } from './lib/sites.js';
+import { addBlock, getStats, KINDS } from './lib/stats.js';
 
 // Layer 2 (content/main.js + content/bridge.js) is declared in manifest.json and
 // loads in every frame of every site; it only blocks inside protected tabs.
@@ -40,13 +41,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 let countChain = Promise.resolve();
 
-function recordBlock(tabId) {
+/**
+ * Counts one stopped popup: the per-tab badge count (session) and the all-time
+ * stats (local). `host` is the tab's address-bar host; stats file it under the
+ * protected-site entry that covers it. Chained so concurrent blocks don't race.
+ */
+function recordBlock(tabId, host, kind) {
   countChain = countChain.then(async () => {
     const { counts = {} } = await chrome.storage.session.get('counts');
     counts[tabId] = (counts[tabId] ?? 0) + 1;
     await chrome.storage.session.set({ counts });
     await showBadge(tabId, counts[tabId]);
-  });
+
+    const site = host ? matchSite(host, await getSites()) : null;
+    const stats = addBlock(await getStats(), site, kind in KINDS ? kind : 'window.open');
+    await chrome.storage.local.set({ stats });
+  }).catch((err) => console.error('[Popup Guard] count failed', err));
   return countChain;
 }
 
@@ -109,14 +119,14 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener(async ({ sourceTabId,
   }
 
   if (await consumeAllow(sourceTabId)) return;
-  await closePopup(tabId, sourceTabId, source.windowId);
+  await closePopup(tabId, sourceTabId, source.windowId, sourceHost);
 });
 
-async function closePopup(tabId, sourceTabId, windowId) {
+async function closePopup(tabId, sourceTabId, windowId, sourceHost) {
   await chrome.tabs.remove(tabId).catch(() => {});
   chrome.tabs.update(sourceTabId, { active: true }).catch(() => {});
   if (windowId !== undefined) chrome.windows.update(windowId, { focused: true }).catch(() => {});
-  recordBlock(sourceTabId);
+  recordBlock(sourceTabId, sourceHost, 'closed');
 }
 
 // The aniwaves ad opens a *same-site* copy of the page (?step1=…&step2=…), which
@@ -145,7 +155,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }
   if (expired || (await consumeAllow(child.sourceTabId))) return;
 
   const source = await chrome.tabs.get(child.sourceTabId).catch(() => null);
-  await closePopup(tabId, child.sourceTabId, source?.windowId);
+  await closePopup(tabId, child.sourceTabId, source?.windowId, child.sourceHost);
 });
 
 // ---------------------------------------------------------------------------
@@ -155,7 +165,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case 'blocked':
-      if (sender.tab) recordBlock(sender.tab.id);
+      if (sender.tab) recordBlock(sender.tab.id, hostOf(sender.tab.url), msg.kind);
       return false;
     case 'isProtectedTab':
       // bridge.js asks when a frame can't see its tab's address itself.

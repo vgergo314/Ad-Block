@@ -9,6 +9,9 @@
   <header>
     <img src="../icons/icon32.png" alt="" width="20" height="20">
     <h1>Popup Guard</h1>
+    <button class="total-chip" id="stats-toggle" aria-expanded="false" aria-controls="stats" title="Popups stopped, all time. Click for stats.">
+      <span id="total-chip">0</span><span class="caret" aria-hidden="true">▾</span>
+    </button>
     <label class="master" title="Turn Popup Guard on or off everywhere">
       <input type="checkbox" id="enabled" role="switch" aria-label="Popup Guard on">
       <span class="track"></span>
@@ -17,6 +20,7 @@
 
   <p class="paused" id="paused" hidden>Paused. Popups are allowed on every site until you turn this back on.</p>
 
+  <div class="stage">
   <main id="settings">
   <section class="card" id="current">
     <div class="row">
@@ -48,6 +52,39 @@
     </form>
   </section>
   </main>
+
+  <!-- Slides down from the header over the settings. -->
+  <section class="stats" id="stats" inert>
+    <div class="tiles">
+      <div class="tile"><b id="st-total">0</b><span>all time</span></div>
+      <div class="tile"><b id="st-today">0</b><span>today</span></div>
+      <div class="tile"><b id="st-week">0</b><span>last 7 days</span></div>
+    </div>
+
+    <p class="stats-empty" id="st-empty">Nothing stopped yet. Popups blocked on your protected sites will show up here.</p>
+
+    <div id="st-details">
+      <div class="section-title">Last 7 days</div>
+      <div class="chart" id="st-chart"></div>
+
+      <div class="section-title">By site</div>
+      <ul class="bars" id="st-sites"></ul>
+
+      <div class="section-title">How they were stopped</div>
+      <div class="split" id="st-split"><span class="before"></span><span class="closed"></span></div>
+      <p class="split-legend">
+        <span><i class="dot before"></i>Before opening <b id="st-before">0%</b></span>
+        <span><i class="dot closed"></i>Closed after opening <b id="st-closed">0%</b></span>
+      </p>
+      <ul class="kinds" id="st-kinds"></ul>
+    </div>
+
+    <div class="stats-foot">
+      <button class="link" id="st-reset">Reset stats</button>
+      <button class="link" id="st-close">▴ Close</button>
+    </div>
+  </section>
+  </div>
 
   <script type="module" src="popup.js"></script>
 </body>
