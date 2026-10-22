@@ -27,10 +27,20 @@ if (!globalThis.__popupGuardBridge) {
     }
   };
 
+  // Shared secret with main.js so page scripts can't spoof the state (see main.js).
+  // Sent at document_start, before any page script exists: now if main.js ran
+  // first, or when main.js announces itself if this script ran first. main.js
+  // keeps only the first key it hears and hides the event from the page.
+  // getRandomValues, not randomUUID: the latter is missing on plain-http frames.
+  const key = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(36)).join('');
+  const sayHello = () => window.dispatchEvent(new CustomEvent('popupguard:hello', { detail: key }));
+  window.addEventListener('popupguard:main-ready', sayHello, { once: true });
+  sayHello();
+
   let state = { active: false, allowUntil: 0 };
   const publish = (patch) => {
     state = { ...state, ...patch };
-    window.dispatchEvent(new CustomEvent('popupguard:state', { detail: JSON.stringify(state) }));
+    window.dispatchEvent(new CustomEvent('popupguard:state', { detail: JSON.stringify({ ...state, key }) }));
   };
 
   const refresh = async () => {

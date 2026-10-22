@@ -15,11 +15,35 @@
 
   let active = false; // is this frame's tab on a protected site?
   let allowUntil = 0; // "Let the next popup through" deadline
-  window.addEventListener('popupguard:state', (e) => {
-    try {
-      ({ active, allowUntil } = JSON.parse(e.detail));
-    } catch {}
-  });
+
+  // Page scripts must not be able to send a fake "not protected" state. bridge.js
+  // sends a random key in 'popupguard:hello' before any page script runs; every
+  // later state event must carry it. These listeners are the first ones on
+  // window, so stopImmediatePropagation keeps page scripts from seeing the key.
+  // Chrome doesn't guarantee which of the two scripts runs first in a frame, so
+  // whichever runs second completes the handshake (see 'popupguard:main-ready').
+  let key = null;
+  window.addEventListener(
+    'popupguard:hello',
+    (e) => {
+      e.stopImmediatePropagation();
+      if (key === null && typeof e.detail === 'string') key = e.detail;
+    },
+    true,
+  );
+  window.addEventListener(
+    'popupguard:state',
+    (e) => {
+      e.stopImmediatePropagation();
+      try {
+        const msg = JSON.parse(e.detail);
+        if (key !== null && msg.key === key) ({ active, allowUntil } = msg);
+      } catch {}
+    },
+    true,
+  );
+  // If bridge.js ran first, its hello went unheard; this asks it to resend.
+  window.dispatchEvent(new CustomEvent('popupguard:main-ready'));
 
   const passThrough = () => !active || allowUntil > Date.now();
 
