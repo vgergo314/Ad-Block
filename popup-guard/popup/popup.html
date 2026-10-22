@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Popup Guard</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="../icons/icon32.png" alt="" width="20" height="20">
+    <h1>Popup Guard</h1>
+  </header>
+
+  <section class="card" id="current">
+    <div class="row">
+      <div>
+        <div class="label">This site</div>
+        <div class="host" id="host">—</div>
+      </div>
+      <label class="switch" title="Protect this site">
+        <input type="checkbox" id="toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <p class="hint" id="status"></p>
+
+    <div class="stat" id="stat" hidden>
+      <span class="count" id="count">0</span>
+      <span>popups blocked in this tab</span>
+    </div>
+
+    <button id="allow" class="secondary" hidden>Let the next popup through</button>
+  </section>
+
+  <section>
+    <div class="section-title">Protected sites <span id="site-count"></span></div>
+    <ul id="sites"></ul>
+    <form id="add-form">
+      <input id="add-input" type="text" placeholder="example.com" autocomplete="off" spellcheck="false">
+      <button type="submit">Add</button>
+    </form>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

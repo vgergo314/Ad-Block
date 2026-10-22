@@ -1,0 +1,6 @@
+<!doctype html>
+<!-- Cross-origin "video player" iframe: Layer 2 can't run here, so Layer 1 must catch this. -->
+<body style="margin:0;background:#222;color:#fff;font:14px system-ui">
+  <button id="play" style="margin:20px">7. Play (popup from cross-origin player iframe)</button>
+  <script>document.getElementById('play').onclick = () => window.open('https://example.org/?from-player');</script>
+</body>

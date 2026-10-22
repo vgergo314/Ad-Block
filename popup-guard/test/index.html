@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Popup Guard test page</title>
+  <!-- Loaded first, like the real ad network: it caches window.open immediately. -->
+  <script src="fake-ad.js"></script>
+  <style>
+    body { font: 14px system-ui; margin: 24px; }
+    button, a { display: block; margin: 8px 0; }
+    #overlay { position: fixed; inset: 0; z-index: 99999; background: transparent; }
+  </style>
+</head>
+<body>
+  <h1>Popup Guard test page</h1>
+  <p>Serve this folder on <code>localhost:8765</code>, then protect <code>localhost</code> in the extension.
+     "Ads" go to <code>127.0.0.1:8765</code>, which counts as a different site.</p>
+
+  <button id="t-cached-open">1. Cached window.open (the aniwaves trick)</button>
+  <button id="t-iframe-open">2. Borrow window.open from a fresh iframe</button>
+  <button id="t-anchor-click">3. Hidden &lt;a target=_blank&gt;.click()</button>
+  <button id="t-dispatch">4. dispatchEvent(click) on hidden link</button>
+  <a id="t-same-site" href="/test/index.html?same" target="_blank">5. Same-site new-tab link (should open)</a>
+  <button id="t-form">8. Hidden &lt;form target=_blank&gt;.submit() (ad-blocker route)</button>
+  <button id="t-form-iframe">9. form.submit borrowed from an iframe</button>
+  <button id="t-step1">10. Same-site tab that redirects to the ad (step1 trick)</button>
+  <iframe id="player" src="http://127.0.0.1:8765/test/player.html" width="400" height="120"></iframe>
+
+  <div id="overlay" hidden></div>
+  <button id="arm-overlay">6. Arm invisible overlay, then click anywhere</button>
+
+  <script>
+    const AD = 'http://127.0.0.1:8765/test/ad.html';
+    document.getElementById('t-cached-open').onclick = () => window.__adOpen(AD);
+    document.getElementById('t-iframe-open').onclick = () => {
+      const f = document.createElement('iframe');
+      f.style.display = 'none';
+      document.body.append(f);
+      f.contentWindow.open(AD);
+      f.remove();
+    };
+    const hiddenLink = () => Object.assign(document.createElement('a'), { href: AD, target: '_blank' });
+    document.getElementById('t-anchor-click').onclick = () => hiddenLink().click();
+    document.getElementById('t-dispatch').onclick = () =>
+      hiddenLink().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    // "target"/"action" params become inputs that shadow form.target / form.action.
+    document.getElementById('t-form').onclick = () => window.__adForm(AD + '?target=x&action=y');
+    document.getElementById('t-form-iframe').onclick = () => {
+      const f = document.createElement('iframe');
+      document.body.append(f);
+      const form = Object.assign(document.createElement('form'), { action: AD, target: '_blank' });
+      document.body.append(form);
+      f.contentWindow.HTMLFormElement.prototype.submit.call(form);
+      form.remove(); f.remove();
+    };
+    document.getElementById('t-step1').onclick = () =>
+      window.__adOpen(location.pathname + '?step1=' + encodeURIComponent(AD + '?via-step1'));
+
+    const overlay = document.getElementById('overlay');
+    document.getElementById('arm-overlay').onclick = () => setTimeout(() => (overlay.hidden = false));
+    overlay.onclick = () => { window.__adOpen(AD); overlay.hidden = true; };
+  </script>
+</body>
+</html>
