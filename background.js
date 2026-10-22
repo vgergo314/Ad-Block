@@ -24,7 +24,7 @@ async function isProtectedTab(tab) {
 // to pass-through live, and Layer 1 below stops closing tabs.
 // ---------------------------------------------------------------------------
 
-/** Global badge; per-tab block counts still show on top of it. */
+/** The toolbar icon's only badge: OFF while paused. Block counts live in the popup. */
 function showPausedBadge(enabled) {
   chrome.action.setBadgeBackgroundColor({ color: '#8e8e93' });
   chrome.action.setBadgeText({ text: enabled ? '' : 'OFF' });
@@ -42,8 +42,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 let countChain = Promise.resolve();
 
 /**
- * Counts one stopped popup: the per-tab badge count (session) and the all-time
- * stats (local). `host` is the tab's address-bar host; stats file it under the
+ * Counts one stopped popup: the per-tab count shown in the popup (session) and
+ * the all-time stats (local). `host` is the tab's address-bar host; stats file it under the
  * protected-site entry that covers it. Chained so concurrent blocks don't race.
  */
 function recordBlock(tabId, host, kind) {
@@ -51,18 +51,12 @@ function recordBlock(tabId, host, kind) {
     const { counts = {} } = await chrome.storage.session.get('counts');
     counts[tabId] = (counts[tabId] ?? 0) + 1;
     await chrome.storage.session.set({ counts });
-    await showBadge(tabId, counts[tabId]);
 
     const site = host ? matchSite(host, await getSites()) : null;
     const stats = addBlock(await getStats(), site, kind in KINDS ? kind : 'window.open');
     await chrome.storage.local.set({ stats });
   }).catch((err) => console.error('[Popup Guard] count failed', err));
   return countChain;
-}
-
-async function showBadge(tabId, count) {
-  await chrome.action.setBadgeBackgroundColor({ tabId, color: '#d93025' });
-  await chrome.action.setBadgeText({ tabId, text: count > 99 ? '99+' : String(count) });
 }
 
 async function getAllowUntil(tabId) {
@@ -85,13 +79,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   delete allow[tabId];
   delete children[tabId];
   await chrome.storage.session.set({ counts, allow, children });
-});
-
-// Chrome can drop tab-specific badge text on navigation; put it back.
-chrome.tabs.onUpdated.addListener(async (tabId, info) => {
-  if (info.status !== 'complete') return;
-  const { counts = {} } = await chrome.storage.session.get('counts');
-  if (counts[tabId]) showBadge(tabId, counts[tabId]);
 });
 
 // ---------------------------------------------------------------------------
