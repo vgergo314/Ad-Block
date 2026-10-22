@@ -44,6 +44,19 @@ if (!globalThis.__popupGuardBridge) {
     window.dispatchEvent(new CustomEvent('popupguard:state', { detail: JSON.stringify({ ...state, key }) }));
   };
 
+  // After the extension reloads or updates, this script lives on in tabs that
+  // were already open, cut off from the background: sendMessage then throws
+  // "Extension context invalidated" synchronously, which .catch() never sees.
+  // Resolves undefined whenever the message can't be delivered.
+  const send = (msg) => {
+    if (!chrome.runtime?.id) return Promise.resolve();
+    try {
+      return chrome.runtime.sendMessage(msg).catch(() => undefined);
+    } catch {
+      return Promise.resolve();
+    }
+  };
+
   const refresh = async () => {
     const host = topHost();
     const { sites = [], enabled: on = true } = await chrome.storage.sync.get(['sites', 'enabled']);
@@ -55,13 +68,13 @@ if (!globalThis.__popupGuardBridge) {
       active = covers(host, sites);
     } else {
       // Can't see the top page from here; the background can (sender.tab.url).
-      active = await chrome.runtime.sendMessage({ type: 'isProtectedTab' }).catch(() => false);
+      active = await send({ type: 'isProtectedTab' });
     }
     publish({ active: !!active });
 
     // Pick up an "allow next popup" that was granted before this frame loaded.
     if (active) {
-      const until = await chrome.runtime.sendMessage({ type: 'getAllow' }).catch(() => 0);
+      const until = await send({ type: 'getAllow' });
       if (until) publish({ allowUntil: until });
     }
   };
@@ -76,18 +89,18 @@ if (!globalThis.__popupGuardBridge) {
   window.addEventListener('popupguard:blocked', (e) => {
     if (!state.active) return;
     const kind = typeof e.detail === 'string' ? e.detail : undefined;
-    chrome.runtime.sendMessage({ type: 'blocked', kind }).catch(() => {});
+    send({ type: 'blocked', kind });
   });
 
   // Popup trick on an unprotected site (see main.js); the background tallies
   // these per site to suggest protecting it. Not while paused.
   window.addEventListener('popupguard:suspect', () => {
-    if (!state.active && enabled) chrome.runtime.sendMessage({ type: 'suspect' }).catch(() => {});
+    if (!state.active && enabled) send({ type: 'suspect' });
   });
 
   // A real link click to another site is about to leave the page (see main.js).
   window.addEventListener('popupguard:usernav', () => {
-    if (state.active) chrome.runtime.sendMessage({ type: 'userNav' }).catch(() => {});
+    if (state.active) send({ type: 'userNav' });
   });
 
   chrome.runtime.onMessage.addListener((msg) => {
