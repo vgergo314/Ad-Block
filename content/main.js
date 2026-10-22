@@ -15,6 +15,7 @@
 
   let active = false; // is this frame's tab on a protected site?
   let allowUntil = 0; // "Let the next popup through" deadline
+  let alwaysAllow = []; // "Always allow popups to" sites
 
   // Page scripts must not be able to send a fake "not protected" state. bridge.js
   // sends a random key in 'popupguard:hello' before any page script runs; every
@@ -37,11 +38,26 @@
       e.stopImmediatePropagation();
       try {
         const msg = JSON.parse(e.detail);
-        if (key !== null && msg.key === key) ({ active, allowUntil } = msg);
+        if (key !== null && msg.key === key) {
+          ({ active, allowUntil } = msg);
+          if (Array.isArray(msg.alwaysAllow)) alwaysAllow = msg.alwaysAllow;
+        }
       } catch {}
     },
     true,
   );
+  // The popup asks whether this tab is guarded (cancelled = yes). A tab loaded
+  // before the extension was installed has no main.js to answer, so the popup
+  // offers a reload. A copy left behind by an extension update still answers.
+  window.addEventListener(
+    'popupguard:ping',
+    (e) => {
+      e.stopImmediatePropagation();
+      if (active) e.preventDefault();
+    },
+    true,
+  );
+
   // If bridge.js ran first, its hello went unheard; this asks it to resend.
   window.dispatchEvent(new CustomEvent('popupguard:main-ready'));
 
@@ -53,11 +69,16 @@
   const baseDomain = (host) =>
     /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':') ? host : host.split('.').slice(-2).join('.');
 
-  /** Not http(s) (about:blank, blob:, data:) counts as foreign — pop-unders open blank then redirect. */
+  /**
+   * Not http(s) (about:blank, blob:, data:) counts as foreign — pop-unders open blank then redirect.
+   * "Always allow popups to" sites never do.
+   */
   const isForeign = (url) => {
     try {
       const u = new URL(url || 'about:blank', location.href);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return true;
+      const host = u.hostname.replace(/^www\./, '');
+      if (alwaysAllow.some((site) => host === site || host.endsWith(`.${site}`))) return false;
       return baseDomain(u.hostname) !== baseDomain(ownHost);
     } catch {
       return true;

@@ -1,4 +1,4 @@
-import { getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
+import { getAlwaysAllow, getEnabled, getSites, hostOf, matchSite, normalizeHost } from '../lib/sites.js';
 import { getStats, KINDS, lastDays } from '../lib/stats.js';
 import { getSuggestState, suggestionFor } from '../lib/suggest.js';
 
@@ -178,7 +178,33 @@ function renderCurrent() {
   $('status').classList.toggle('on', !!entry);
   $('stat').hidden = !entry;
   $('allow').hidden = !entry;
+  $('reload-hint').hidden = !(entry && enabled && guarded === false);
 }
+
+/**
+ * Is Layer 2 running in this tab? main.js answers a cancelable ping. A tab loaded
+ * before the extension was installed has no main.js, so nothing cancels it. Only
+ * asked when the popup opens on a protected tab with Popup Guard on; null otherwise.
+ */
+async function checkGuard() {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => !window.dispatchEvent(new CustomEvent('popupguard:ping', { cancelable: true })),
+    });
+    return result;
+  } catch {
+    return null; // a page extensions can't run on (chrome://, the Web Store)
+  }
+}
+
+let guarded = tabHost && enabled && matchSite(tabHost, sites) ? await checkGuard() : null;
+
+$('reload-tab').addEventListener('click', () => {
+  chrome.tabs.reload(tab.id);
+  guarded = null;
+  renderCurrent();
+});
 
 $('toggle').addEventListener('change', async (e) => {
   const entry = matchSite(tabHost, sites);
@@ -187,6 +213,8 @@ $('toggle').addEventListener('change', async (e) => {
   // Open frames switch live, but a tab loaded before the extension was
   // installed or reloaded has no guard in it yet, so reload when turning on.
   if (e.target.checked) chrome.tabs.reload(tab.id);
+  guarded = null; // either reloaded or no longer protected
+  renderCurrent();
 });
 
 async function renderCount() {
@@ -232,33 +260,38 @@ chrome.storage.session.onChanged.addListener((changes) => {
   showAllowState(until);
 });
 
-// --- site list --------------------------------------------------------------
+// --- site lists ---------------------------------------------------------------
 
-function renderSites() {
-  const list = $('sites');
+/** Fills a .site-list with one row per site, each with a remove button. */
+function renderList(list, countEl, items, emptyText, removeTitle, onRemove) {
   list.replaceChildren();
-  $('site-count').textContent = sites.length ? `(${sites.length})` : '';
+  countEl.textContent = items.length ? `(${items.length})` : '';
 
-  if (!sites.length) {
+  if (!items.length) {
     const li = document.createElement('li');
     li.className = 'empty';
-    li.textContent = 'No sites yet. Use the switch above or add one below.';
+    li.textContent = emptyText;
     list.append(li);
     return;
   }
 
-  for (const site of sites) {
+  for (const site of items) {
     const li = document.createElement('li');
     const name = document.createElement('span');
     name.textContent = site;
     const remove = document.createElement('button');
     remove.className = 'remove';
-    remove.title = `Stop protecting ${site}`;
+    remove.title = removeTitle(site);
     remove.textContent = '×';
-    remove.addEventListener('click', () => saveSites(sites.filter((s) => s !== site)));
+    remove.addEventListener('click', () => onRemove(site));
     li.append(name, remove);
     list.append(li);
   }
+}
+
+function renderSites() {
+  renderList($('sites'), $('site-count'), sites, 'No sites yet. Use the switch above or add one below.',
+    (site) => `Stop protecting ${site}`, (site) => saveSites(sites.filter((s) => s !== site)));
 }
 
 $('add-form').addEventListener('submit', async (e) => {
@@ -268,6 +301,37 @@ $('add-form').addEventListener('submit', async (e) => {
   $('add-input').value = '';
   await saveSites([...sites, host]);
 });
+
+// --- "Always allow popups to" ----------------------------------------------------
+// Protected sites may open or go to these (a login, a download host). Open
+// frames pick changes up live via storage.onChanged in bridge.js.
+
+let alwaysAllow = await getAlwaysAllow();
+
+async function saveAlwaysAllow(next) {
+  alwaysAllow = [...new Set(next)].sort();
+  await chrome.storage.sync.set({ alwaysAllow });
+  renderAlwaysAllow();
+}
+
+function renderAlwaysAllow() {
+  renderList($('always'), $('always-count'), alwaysAllow, 'None. Add a site your protected sites need to open.',
+    (site) => `Block popups to ${site} again`, (site) => saveAlwaysAllow(alwaysAllow.filter((s) => s !== site)));
+}
+
+$('always-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const host = normalizeHost($('always-input').value);
+  if (!host) return;
+  $('always-input').value = '';
+  await saveAlwaysAllow([...alwaysAllow, host]);
+});
+
+// --- count on the toolbar icon ------------------------------------------------------
+
+const { badgeCount = false } = await chrome.storage.sync.get('badgeCount');
+$('badge-count').checked = badgeCount;
+$('badge-count').addEventListener('change', (e) => chrome.storage.sync.set({ badgeCount: e.target.checked }));
 
 // --- init -------------------------------------------------------------------
 
@@ -298,6 +362,7 @@ function render() {
 }
 
 render();
+renderAlwaysAllow();
 renderCount();
 if (tab) {
   const { allow = {} } = await chrome.storage.session.get('allow');

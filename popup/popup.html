@@ -35,6 +35,13 @@
     </div>
     <p class="hint" id="status"></p>
 
+    <div class="suggest" id="reload-hint" hidden>
+      <p>This tab was open before Popup Guard started, so popups can still slip through. Reload it to start blocking.</p>
+      <div class="suggest-actions">
+        <button id="reload-tab">Reload tab</button>
+      </div>
+    </div>
+
     <div class="suggest" id="suggest" hidden>
       <p id="suggest-text"></p>
       <div class="suggest-actions">
@@ -53,11 +60,30 @@
 
   <section>
     <div class="section-title">Protected sites <span id="site-count"></span></div>
-    <ul id="sites"></ul>
+    <ul class="site-list" id="sites"></ul>
     <form id="add-form">
       <input id="add-input" type="text" placeholder="example.com" autocomplete="off" spellcheck="false">
       <button type="submit">Add</button>
     </form>
+  </section>
+
+  <section class="list-section">
+    <div class="section-title" title="Protected sites may always open these, e.g. a login or download site">Always allow popups to <span id="always-count"></span></div>
+    <ul class="site-list" id="always"></ul>
+    <form id="always-form">
+      <input id="always-input" type="text" placeholder="accounts.google.com" autocomplete="off" spellcheck="false">
+      <button type="submit">Add</button>
+    </form>
+  </section>
+
+  <section class="list-section">
+    <label class="row option">
+      <span>Show blocked count on the icon</span>
+      <span class="switch">
+        <input type="checkbox" id="badge-count">
+        <span class="slider"></span>
+      </span>
+    </label>
   </section>
   </main>
 

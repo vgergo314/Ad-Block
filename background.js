@@ -1,4 +1,4 @@
-import { ALLOW_WINDOW_MS, getEnabled, getSites, hostOf, isSameSite, matchSite, normalizeHost } from './lib/sites.js';
+import { ALLOW_WINDOW_MS, getAlwaysAllow, getEnabled, getSites, hostOf, isSameSite, matchSite, normalizeHost } from './lib/sites.js';
 import { addBlock, getStats, KINDS } from './lib/stats.js';
 import { addSuspect, getSuggestState, suggestionFor } from './lib/suggest.js';
 
@@ -25,7 +25,7 @@ async function isProtectedTab(tab) {
 // to pass-through live, and Layer 1 below stops closing tabs.
 // ---------------------------------------------------------------------------
 
-/** Global badge: OFF while paused. (Per tab, a suggestion dot may show; block counts live in the popup.) */
+/** Global badge: OFF while paused. (Per tab, a suggestion dot or the block count may show; see refreshBadge.) */
 function showPausedBadge(enabled) {
   chrome.action.setBadgeBackgroundColor({ color: '#8e8e93' });
   chrome.action.setBadgeText({ text: enabled ? '' : 'OFF' });
@@ -52,6 +52,7 @@ function recordBlock(tabId, host, kind) {
     const { counts = {} } = await chrome.storage.session.get('counts');
     counts[tabId] = (counts[tabId] ?? 0) + 1;
     await chrome.storage.session.set({ counts });
+    chrome.tabs.get(tabId).then(refreshBadge, () => {});
 
     const site = host ? matchSite(host, await getSites()) : null;
     const stats = addBlock(await getStats(), site, kind in KINDS ? kind : 'window.open');
@@ -113,6 +114,7 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener(async ({ sourceTabId,
 
   // about:blank / empty targets count as foreign: pop-unders often open blank and redirect.
   const targetHost = hostOf(url);
+  if (targetHost && matchSite(targetHost, await getAlwaysAllow())) return; // "Always allow popups to"
   if (targetHost && isSameSite(sourceHost, targetHost)) {
     await watchChild(tabId, sourceTabId, sourceHost);
     return;
@@ -210,6 +212,7 @@ chrome.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url, trans
     return until ?? 0;
   });
   if (!prev || !host || isSameSite(prev, host)) return;
+  if (matchSite(host, await getAlwaysAllow())) return;
   if (!(await getEnabled()) || !matchSite(prev, await getSites())) return;
 
   // Things you did yourself: typing, bookmarks, reload, back/forward.
@@ -237,7 +240,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }
   if (!expired && targetHost && isSameSite(child.sourceHost, targetHost)) return; // still on-site: keep watching
 
   await updateSession('children', (m) => void delete m[tabId]);
-  if (expired || (await consumeAllow(child.sourceTabId))) return;
+  if (expired || (targetHost && matchSite(targetHost, await getAlwaysAllow()))) return;
+  if (await consumeAllow(child.sourceTabId)) return;
 
   const source = await chrome.tabs.get(child.sourceTabId).catch(() => null);
   await closePopup(tabId, child.sourceTabId, source?.windowId, child.sourceHost);
@@ -316,12 +320,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // ---------------------------------------------------------------------------
-// "Protect this site?" suggestions: tally popup tricks on unprotected sites
-// and put a small amber dot (no number) on the icon while you're on one that
-// crossed the threshold. The popup shows the actual question.
+// Per-tab badge. On unprotected sites: "Protect this site?" suggestions tally
+// popup tricks and put a small amber dot (no number) on the icon while you're
+// on one that crossed the threshold; the popup shows the actual question. On
+// protected sites: the tab's block count, if turned on in the popup.
 // ---------------------------------------------------------------------------
 
 const DOT_COLOR = '#f9ab00';
+const COUNT_COLOR = '#d93025';
 let suspectChain = Promise.resolve();
 
 async function noteSuspect(tab) {
@@ -333,31 +339,50 @@ async function noteSuspect(tab) {
     await chrome.storage.local.set({ suspects: addSuspect(suspects, site) });
   }).catch(() => {});
   await suspectChain;
-  refreshDot(tab);
+  refreshBadge(tab);
 }
 
-async function refreshDot(tab) {
+/** The tab's block count as badge text, if that's turned on and there is one; else null. */
+async function countText(tabId) {
+  const { badgeCount = false } = await chrome.storage.sync.get('badgeCount');
+  if (!badgeCount) return null;
+  const { counts = {} } = await chrome.storage.session.get('counts');
+  const n = counts[tabId] ?? 0;
+  return n ? (n > 999 ? '999+' : String(n)) : null;
+}
+
+async function refreshBadge(tab) {
   if (!tab?.id) return;
   const host = hostOf(tab.url);
-  const show =
-    !!host &&
-    (await getEnabled()) &&
-    !matchSite(host, await getSites()) &&
-    suggestionFor(normalizeHost(host), await getSuggestState()) > 0;
-  // null clears this tab's text, falling back to the global badge (OFF or nothing).
-  chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: show ? DOT_COLOR : '#8e8e93' }).catch(() => {});
-  chrome.action.setBadgeText({ tabId: tab.id, text: show ? ' ' : null }).catch(() => {});
+  let text = null; // null clears this tab's text, falling back to the global badge (OFF or nothing)
+  let color = '#8e8e93';
+  if (host && (await getEnabled())) {
+    if (matchSite(host, await getSites())) {
+      text = await countText(tab.id);
+      color = COUNT_COLOR;
+    } else if (suggestionFor(normalizeHost(host), await getSuggestState()) > 0) {
+      text = ' ';
+      color = DOT_COLOR;
+    }
+  }
+  chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color }).catch(() => {});
+  chrome.action.setBadgeText({ tabId: tab.id, text }).catch(() => {});
 }
 
-async function refreshAllDots() {
-  for (const tab of await chrome.tabs.query({})) refreshDot(tab);
+async function refreshAllBadges() {
+  for (const tab of await chrome.tabs.query({})) refreshBadge(tab);
 }
 
 chrome.tabs.onUpdated.addListener((_, info, tab) => {
-  if (info.status === 'complete') refreshDot(tab);
+  if (info.status === 'complete') refreshBadge(tab);
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if ((area === 'sync' && (changes.sites || changes.enabled)) || (area === 'local' && changes.dismissed)) refreshAllDots();
+  if (
+    (area === 'sync' && (changes.sites || changes.enabled || changes.badgeCount)) ||
+    (area === 'local' && changes.dismissed)
+  ) {
+    refreshAllBadges();
+  }
 });
 
 // ---------------------------------------------------------------------------

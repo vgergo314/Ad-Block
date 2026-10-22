@@ -26,6 +26,9 @@ Same-site new tabs (e.g. "open episode in new tab") are never blocked.
 ## Also included
 
 - **Notification prompts:** on protected sites, "Allow notifications?" requests are silently answered "denied" (including behind fake "click Allow to prove you're not a robot" boxes). Nothing can ever grant permission, and Chrome's site settings aren't changed.
+- **Always allow popups to:** a second list in the popup for sites your protected sites legitimately send you to (a Google login, Discord, a download host). Popups, new-tab links, forms and redirects to these, or their subdomains, are never blocked. Changes apply live to open tabs.
+- **Reload hint:** if a protected tab was opened before Popup Guard was installed, it has no guard yet; the popup notices and offers to reload it. (A tab left over from an extension update still blocks, so it gets no hint; only its counter stops until the next reload.)
+- **Count on the icon** (off by default): shows the current tab's block count on the toolbar icon, on protected sites.
 - **Right-click menu:** on pages and on the toolbar icon — Protect / Stop protecting this site, Let the next popup through, Pause / Resume.
 - **Suggestions:** if an unprotected site uses popup tricks 3 times (hidden links or forms, invisible overlays, popups from clicking something that isn't a link or button), the icon shows a small amber dot on that tab and the popup offers to protect it. Real links and buttons don't count. Tallies are site name + count, kept 30 days on this computer.
 - **Stats:** click the number next to the title for all-time / today / 7-day counts, per site, and how popups were stopped. Stored only on this computer.

@@ -108,6 +108,7 @@ main.paused-look { opacity: .45; filter: grayscale(1); transition: opacity .2s; 
   border: 1px solid color-mix(in srgb, #f9ab00 35%, transparent);
 }
 .suggest p { margin: 0 0 10px; }
+#reload-hint { background: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .suggest-actions { display: flex; gap: 8px; }
 button.ghost { background: transparent; color: var(--text); border-color: var(--border); }
 button.ghost:hover { border-color: var(--muted); }
@@ -151,14 +152,17 @@ li .remove {
 }
 li .remove:hover { color: var(--accent); }
 
-/* protected sites as one rounded group with inset dividers, instead of bare lines */
-#sites {
+/* site lists as one rounded group with inset dividers, instead of bare lines */
+.site-list {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-control);
   padding: 0 4px 0 12px; margin-bottom: 10px;
 }
-#sites li { padding: 8px 0; }
-#sites li:last-child { border-bottom: 0; }
-#sites li.empty { padding: 10px 8px 10px 0; }
+.site-list li { padding: 8px 0; }
+.site-list li:last-child { border-bottom: 0; }
+.site-list li.empty { padding: 10px 8px 10px 0; color: var(--muted); }
+
+.list-section { margin-top: 16px; }
+.option { cursor: pointer; }
 
 /* --- all-time stats ------------------------------------------------------- */
 

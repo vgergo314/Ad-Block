@@ -59,7 +59,11 @@ if (!globalThis.__popupGuardBridge) {
 
   const refresh = async () => {
     const host = topHost();
-    const { sites = [], enabled: on = true } = await chrome.storage.sync.get(['sites', 'enabled']);
+    const {
+      sites = [],
+      enabled: on = true,
+      alwaysAllow = [],
+    } = await chrome.storage.sync.get(['sites', 'enabled', 'alwaysAllow']);
     enabled = on;
     let active;
     if (!enabled) {
@@ -70,7 +74,7 @@ if (!globalThis.__popupGuardBridge) {
       // Can't see the top page from here; the background can (sender.tab.url).
       active = await send({ type: 'isProtectedTab' });
     }
-    publish({ active: !!active });
+    publish({ active: !!active, alwaysAllow });
 
     // Pick up an "allow next popup" that was granted before this frame loaded.
     if (active) {
@@ -81,7 +85,7 @@ if (!globalThis.__popupGuardBridge) {
 
   refresh();
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && (changes.sites || changes.enabled)) refresh();
+    if (area === 'sync' && (changes.sites || changes.enabled || changes.alwaysAllow)) refresh();
   });
 
   // detail is the block kind from main.js ('window.open', 'link', 'form', 'overlay', 'notification').
