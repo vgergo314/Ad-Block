@@ -56,7 +56,6 @@ function setStatsOpen(open) {
 }
 
 $('stats-toggle').addEventListener('click', () => setStatsOpen(!statsOpen));
-$('st-close').addEventListener('click', () => setStatsOpen(false));
 $('st-reset').addEventListener('click', async () => {
   if (confirm('Reset all popup statistics? This can’t be undone.')) await chrome.storage.local.remove('stats');
 });

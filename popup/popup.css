@@ -191,7 +191,7 @@ ul.kinds { max-height: none; margin-bottom: 10px; }
 ul.kinds li { padding: 4px 0; font-size: 12px; }
 ul.kinds li span:last-child { font-variant-numeric: tabular-nums; color: var(--muted); }
 
-.stats-foot { display: flex; justify-content: space-between; padding-top: 6px; }
+.stats-foot { padding-top: 6px; }
 button.link { background: none; border: 0; padding: 2px 0; color: var(--muted); font-weight: 500; }
 button.link:hover { color: var(--text); }
 
