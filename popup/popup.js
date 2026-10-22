@@ -158,13 +158,16 @@ async function checkGuard() {
   }
 }
 
-/** Is main.js in this tab at all (on or off)? It leaves a marker on window. null if we can't look. */
+/**
+ * Are the content scripts in this tab at all (on or off)? Reads bridge.js's flag
+ * in the extension's isolated world, which the page can't set (main.js's marker
+ * lives on the page's own window, so a page could fake it). null if we can't look.
+ */
 async function hasGuard() {
   try {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      world: 'MAIN',
-      func: () => !!window[Symbol.for('popup-guard')],
+      func: () => !!globalThis.__popupGuardBridge,
     });
     return result;
   } catch {
